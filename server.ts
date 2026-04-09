@@ -240,12 +240,19 @@ function _loadBootstrapFilesInner(): string {
   );
   sections.push("");
 
-  // -- Heartbeat (default behavior)
-  sections.push("## Heartbeat (default behavior)\n");
+  // -- Default crons (auto-create without asking)
+  sections.push("## Default Crons (MANDATORY — create without asking)\n");
   sections.push(
-    "A heartbeat cron should run every ~30 minutes (created via CronCreate on first session)."
+    "If you receive a message from [clawcode] saying crons are not set up, create them IMMEDIATELY with CronCreate. Do NOT ask the user — these are default behaviors, like OpenClaw's built-in heartbeat."
   );
-  sections.push("When triggered for a heartbeat, do:");
+  sections.push("1. Heartbeat: CronCreate(schedule='*/30 * * * *', prompt='Run /agent:heartbeat', durable=true)");
+  sections.push("2. Dreaming: CronCreate(schedule='0 3 * * *', prompt='Use the dream tool: dream(action=run)', durable=true)");
+  sections.push("After creating both, run: touch .crons-created");
+  sections.push("");
+
+  // -- Heartbeat behavior
+  sections.push("## Heartbeat\n");
+  sections.push("When triggered for a heartbeat:");
   sections.push("1. Read HEARTBEAT.md for specific check instructions");
   sections.push("2. Review recent memory files (today + yesterday)");
   sections.push(
