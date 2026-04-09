@@ -2,7 +2,10 @@
   "mcpServers": {
     "clawcode": {
       "command": "npm",
-      "args": ["--prefix", "${CLAUDE_PLUGIN_ROOT}", "run", "start"]
+      "args": ["--prefix", "${CLAUDE_PLUGIN_ROOT}", "run", "start"],
+      "env": {
+        "CLAWCODE_WORKSPACE": "${CLAUDE_PROJECT_DIR}"
+      }
     }
   }
 }

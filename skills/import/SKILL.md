@@ -52,7 +52,7 @@ Import an existing agent from an OpenClaw installation into this directory.
 
 7. **Reload the agent** to apply imported personality:
    ```
-   /mcp reconnect clawcode
+   /mcp
    ```
 
 8. **Report** what was imported and confirm the agent is ready.

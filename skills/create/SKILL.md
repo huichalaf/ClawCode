@@ -37,7 +37,7 @@ The plugin is already installed — this skill just copies the template files to
 
 4. **Reload the MCP server** to pick up the new files:
    ```
-   /mcp reconnect clawcode
+   /mcp
    ```
 
 5. After reconnect, the agent should detect BOOTSTRAP.md and start the bootstrap ritual — a conversational onboarding where it discovers its name, personality, and vibe.
@@ -47,5 +47,5 @@ The plugin is already installed — this skill just copies the template files to
 - Files are created in the **current directory** (where you launched Claude Code)
 - BOOTSTRAP.md triggers the first-run ritual — the agent "wakes up" and discovers who it is
 - After bootstrap, the agent writes IDENTITY.md, USER.md, adjusts SOUL.md, then deletes BOOTSTRAP.md
-- No need to exit Claude Code — `/mcp reconnect clawcode` reloads everything
+- No need to exit Claude Code — `/mcp` reloads everything
 - Do NOT fill in IDENTITY.md or USER.md manually — the bootstrap conversation does that

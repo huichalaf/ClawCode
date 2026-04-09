@@ -73,7 +73,7 @@ Before finishing, offer to configure enhanced memory search:
 ## Finish up
 
 4. **Delete this file** — you don't need a bootstrap script anymore. You're you now.
-5. **Reload yourself** — run `/mcp reconnect clawcode` so your new identity and memory config take effect.
+5. **Reload yourself** — run `/mcp` so your new identity and memory config take effect.
 
 ## Important
 

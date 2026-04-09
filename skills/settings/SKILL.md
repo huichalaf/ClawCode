@@ -86,7 +86,7 @@ Show defaults:
 
 5. **Reload the MCP server:**
    ```
-   /mcp reconnect clawcode
+   /mcp
    ```
 
 ### Search modes (QMD only)
@@ -118,7 +118,7 @@ To change a setting:
 1. Read current `agent-config.json` (or create if it doesn't exist)
 2. Update the relevant field
 3. Write back the full config
-4. Run `/mcp reconnect clawcode` to apply
+4. Run `/mcp` to apply
 
 ## Heartbeat settings
 
@@ -151,7 +151,7 @@ Outside these hours, the heartbeat cron still fires but the agent should skip si
 
 ## Important
 
-- After any config change, the user must run `/mcp reconnect clawcode` to reload
+- After any config change, the user must run `/mcp` to reload
 - The builtin backend is always available as fallback even when QMD is configured
 - QMD first run downloads embedding models (~100MB) — this is a one-time cost
 - Heartbeat active hours are enforced by the agent (instructions), not the cron system

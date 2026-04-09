@@ -49,7 +49,7 @@ claude
 
 **4. Reload** to apply the personality:
 ```
-/mcp reconnect clawcode
+/mcp
 ```
 
 ## Bootstrap Ritual
@@ -62,7 +62,7 @@ When you create a new agent, a `BOOTSTRAP.md` acts as its "birth certificate":
 - Offers to set up QMD for enhanced memory (if installed)
 - Writes `agent-config.json` with memory settings
 - Deletes BOOTSTRAP.md — the agent is born
-- Runs `/mcp reconnect clawcode` to load its identity
+- Runs `/mcp` to load its identity
 
 One-time ritual. After that, the agent wakes up with its personality on every session.
 
@@ -120,7 +120,7 @@ agent_config(action='set', key='heartbeat.activeHours.start', value='09:00')
 agent_config(action='set', key='memory.builtin.halfLifeDays', value='60')
 ```
 
-After changes: `/mcp reconnect clawcode` to apply.
+After changes: `/mcp` to apply.
 
 ## Memory System
 
