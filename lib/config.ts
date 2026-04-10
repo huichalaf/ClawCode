@@ -33,6 +33,14 @@ export interface AgentConfig {
     backend: "builtin" | "qmd";
     /** Citation mode */
     citations: "auto" | "on" | "off";
+    /**
+     * Extra paths to index alongside the default memory/ directory.
+     * Useful for indexing logs from messaging plugins, e.g.:
+     *   ["~/.claude/channels/whatsapp/logs/conversations"]
+     * Only *.md files are indexed. .jsonl, .json, binary files are skipped.
+     * Paths starting with ~ are expanded to $HOME.
+     */
+    extraPaths?: string[];
     /** QMD-specific settings (only used when backend = "qmd") */
     qmd?: {
       /** Path to qmd binary (default: "qmd" — searches PATH) */

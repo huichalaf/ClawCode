@@ -38,9 +38,10 @@ try {
 }
 
 // Always initialize builtin DB (used as fallback even when QMD is primary)
+const extraPaths = config.memory.extraPaths || [];
 let memoryDB: MemoryDB;
 try {
-  memoryDB = new MemoryDB(WORKSPACE);
+  memoryDB = new MemoryDB(WORKSPACE, extraPaths);
 } catch {
   // SQLite init failed (e.g., better-sqlite3 not compiled) — create a stub
   memoryDB = {

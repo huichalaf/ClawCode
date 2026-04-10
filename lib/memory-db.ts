@@ -26,11 +26,17 @@ export class MemoryDB {
   private db: Database.Database;
   private pluginRoot: string;
   private memoryDir: string;
+  private extraPaths: string[];
   private dirty = true;
 
-  constructor(pluginRoot: string) {
+  constructor(pluginRoot: string, extraPaths: string[] = []) {
     this.pluginRoot = pluginRoot;
     this.memoryDir = path.join(pluginRoot, "memory");
+    this.extraPaths = extraPaths.map((p) => {
+      // Expand ~ to home
+      if (p.startsWith("~/")) return path.join(process.env.HOME || "", p.slice(2));
+      return path.resolve(p);
+    });
 
     // Ensure memory directory exists
     try {
@@ -92,21 +98,31 @@ export class MemoryDB {
 
   /**
    * List all memory files to index.
-   * Searches: memory/*.md + MEMORY.md at root
+   * Searches: memory/*.md + MEMORY.md at root + configured extraPaths.
+   * Only *.md files are indexed. .jsonl, .json, binary files are skipped.
    */
   private listMemoryFiles(): Array<{ relPath: string; fullPath: string }> {
     const files: Array<{ relPath: string; fullPath: string }> = [];
+    const seen = new Set<string>();
+
+    const addFile = (fullPath: string, relPath: string) => {
+      // Dedupe by absolute path
+      const abs = path.resolve(fullPath);
+      if (seen.has(abs)) return;
+      seen.add(abs);
+      files.push({ relPath, fullPath });
+    };
 
     // Root MEMORY.md
     const rootMemory = path.join(this.pluginRoot, "MEMORY.md");
     if (fs.existsSync(rootMemory)) {
-      files.push({ relPath: "MEMORY.md", fullPath: rootMemory });
+      addFile(rootMemory, "MEMORY.md");
     }
 
     // memory/MEMORY.md
     const memMemory = path.join(this.memoryDir, "MEMORY.md");
     if (fs.existsSync(memMemory)) {
-      files.push({ relPath: "memory/MEMORY.md", fullPath: memMemory });
+      addFile(memMemory, "memory/MEMORY.md");
     }
 
     // All .md files in memory/ (excluding .dreams/ and hidden files)
@@ -117,14 +133,60 @@ export class MemoryDB {
         if (entry.name === "MEMORY.md") continue; // Already added
         const fullPath = path.join(this.memoryDir, entry.name);
         if (entry.isFile() && entry.name.endsWith(".md")) {
-          files.push({ relPath: `memory/${entry.name}`, fullPath });
+          addFile(fullPath, `memory/${entry.name}`);
         }
       }
     } catch {
       // memory/ doesn't exist yet
     }
 
+    // extraPaths — walk recursively, .md only
+    for (const extraPath of this.extraPaths) {
+      this.walkExtraPath(extraPath, addFile);
+    }
+
     return files;
+  }
+
+  /**
+   * Recursively walk an extra path, collecting .md files only.
+   * Skips .jsonl (duplicates of .md in some plugins like claude-whatsapp),
+   * binary files, and hidden directories.
+   */
+  private walkExtraPath(
+    rootPath: string,
+    addFile: (fullPath: string, relPath: string) => void,
+    currentDir?: string
+  ): void {
+    const dir = currentDir || rootPath;
+    try {
+      if (!fs.existsSync(dir)) return;
+      const stat = fs.statSync(dir);
+      if (!stat.isDirectory()) {
+        // Single file — add if .md
+        if (dir.endsWith(".md")) {
+          addFile(dir, `extra:${path.basename(dir)}`);
+        }
+        return;
+      }
+
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.name.startsWith(".")) continue; // skip hidden
+        const fullPath = path.join(dir, entry.name);
+
+        if (entry.isDirectory()) {
+          this.walkExtraPath(rootPath, addFile, fullPath);
+        } else if (entry.isFile() && entry.name.endsWith(".md")) {
+          // Build relative path: extra:<rootBasename>/<relative-path>
+          const rootBase = path.basename(rootPath);
+          const rel = path.relative(rootPath, fullPath);
+          addFile(fullPath, `extra:${rootBase}/${rel}`);
+        }
+      }
+    } catch {
+      // Permission denied or other — skip silently
+    }
   }
 
   /**
@@ -339,6 +401,40 @@ export class MemoryDB {
   }
 
   /**
+   * Resolve a logical path (e.g. "extra:whatsapp/2026-04-09.md") to an absolute path.
+   * Returns null if the path is not allowed.
+   */
+  private resolveLogicalPath(relPath: string): string | null {
+    // Handle extra: prefix
+    if (relPath.startsWith("extra:")) {
+      const stripped = relPath.slice(6); // remove "extra:"
+      // Find which extraPath this belongs to by matching basename
+      const firstSep = stripped.indexOf("/");
+      const rootBase = firstSep >= 0 ? stripped.slice(0, firstSep) : stripped;
+      const subPath = firstSep >= 0 ? stripped.slice(firstSep + 1) : "";
+
+      for (const extraPath of this.extraPaths) {
+        if (path.basename(extraPath) === rootBase) {
+          const full = subPath ? path.join(extraPath, subPath) : extraPath;
+          const resolved = path.resolve(full);
+          // Security: must still be under the extraPath
+          if (resolved.startsWith(path.resolve(extraPath))) {
+            return resolved;
+          }
+        }
+      }
+      return null;
+    }
+
+    // Regular workspace-relative path
+    const fullPath = path.resolve(this.pluginRoot, relPath);
+    if (!fullPath.startsWith(this.pluginRoot)) {
+      return null;
+    }
+    return fullPath;
+  }
+
+  /**
    * Read a memory file with optional line range.
    * Mirrors OpenClaw's memory_get.
    */
@@ -347,9 +443,9 @@ export class MemoryDB {
     from?: number,
     lineCount?: number
   ): { text: string; path: string } | { error: string } {
-    // Security: resolve and validate path
-    const fullPath = path.resolve(this.pluginRoot, relPath);
-    if (!fullPath.startsWith(this.pluginRoot)) {
+    // Security: resolve with extra: prefix support
+    const fullPath = this.resolveLogicalPath(relPath);
+    if (!fullPath) {
       return { error: "Path outside workspace" };
     }
 

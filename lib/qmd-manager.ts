@@ -26,6 +26,7 @@ export class QmdManager {
   private timeoutMs: number;
   private pluginRoot: string;
   private qmdHome: string;
+  private extraPaths: string[];
   private initialized = false;
 
   constructor(pluginRoot: string, config: AgentConfig) {
@@ -34,6 +35,10 @@ export class QmdManager {
     this.searchMode = config.memory.qmd?.searchMode ?? DEFAULT_SEARCH_MODE;
     this.maxResults = config.memory.qmd?.limits?.maxResults ?? DEFAULT_MAX_RESULTS;
     this.timeoutMs = config.memory.qmd?.limits?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.extraPaths = (config.memory.extraPaths || []).map((p) => {
+      if (p.startsWith("~/")) return path.join(process.env.HOME || "", p.slice(2));
+      return path.resolve(p);
+    });
 
     // QMD home directory (isolated per agent, like OpenClaw)
     this.qmdHome = path.join(pluginRoot, ".qmd");
@@ -81,6 +86,18 @@ export class QmdManager {
     if (fs.existsSync(rootMemory)) {
       try {
         this.runQmd(["collection", "add", "root-memory", this.pluginRoot, "--pattern", "MEMORY.md"]);
+      } catch {
+        // Collection may already exist — OK
+      }
+    }
+
+    // Add extra collections (e.g., whatsapp logs)
+    for (const extraPath of this.extraPaths) {
+      if (!fs.existsSync(extraPath)) continue;
+      const name = `extra-${path.basename(extraPath)}`;
+      try {
+        // Only index .md (not .jsonl duplicates from claude-whatsapp)
+        this.runQmd(["collection", "add", name, extraPath, "--pattern", "**/*.md"]);
       } catch {
         // Collection may already exist — OK
       }

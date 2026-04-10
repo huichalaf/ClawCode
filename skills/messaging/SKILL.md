@@ -104,3 +104,46 @@ Tell the user:
 2. Run `/mcp` to verify both plugins are connected
 3. Send a test message from their phone
 4. The agent should respond with its personality (not generic Claude)
+
+## Index conversation logs in memory (recommended)
+
+Messaging plugins log conversations to disk. These logs are valuable context that the agent should be able to search. ClawCode can index them automatically via `memory.extraPaths` in `agent-config.json`.
+
+**IMPORTANT**: Only index `.md` log files, NOT `.jsonl`. Most plugins (including claude-whatsapp) write both formats — indexing both would duplicate content.
+
+### Known log locations
+
+| Plugin | Log path | Format |
+|---|---|---|
+| claude-whatsapp (local scope) | `./.whatsapp/logs/conversations/` | `.md` + `.jsonl` |
+| claude-whatsapp (user scope) | `~/.claude/channels/whatsapp/logs/conversations/` | `.md` + `.jsonl` |
+| telegram | `~/.claude/channels/telegram/logs/` (check) | varies |
+| discord | `~/.claude/channels/discord/logs/` (check) | varies |
+
+### Enable log indexing
+
+After the messaging plugin is installed, add its log directory to `agent-config.json`:
+
+```
+agent_config(
+  action='set',
+  key='memory.extraPaths',
+  value='["~/.claude/channels/whatsapp/logs/conversations"]'
+)
+```
+
+Or edit `agent-config.json` directly:
+```json
+{
+  "memory": {
+    "backend": "builtin",
+    "extraPaths": [
+      "~/.claude/channels/whatsapp/logs/conversations"
+    ]
+  }
+}
+```
+
+Then `/mcp` to reload. The next `memory_search` will find content from those conversations. Only `.md` files are indexed — `.jsonl` files are skipped to avoid duplicates.
+
+Log entries appear in search results with `extra:` prefix, e.g. `extra:conversations/2026-04-09.md`.
