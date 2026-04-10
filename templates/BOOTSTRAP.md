@@ -70,6 +70,22 @@ Before finishing, offer to configure enhanced memory search:
    }
    ```
 
+## Set up messaging (optional)
+
+Before finishing, offer to connect a messaging channel so the user can reach you from their phone or desktop:
+
+> "Want to talk to me from WhatsApp, Telegram, Discord, or iMessage? I can set up a messaging channel now, or you can do it later with `/agent:messaging`."
+
+**Recommended**: WhatsApp via `crisandrews/claude-whatsapp` (rich access control, voice transcription, community-maintained).
+
+If the user wants to set up messaging now:
+- Run the `/agent:messaging` skill
+- It will guide them through plugin installation (the agent can't install plugins directly, but will show exact commands to run)
+- Both ClawCode and the messaging plugin coexist without conflict
+- After setup, the user can message this agent from their phone and you'll respond with YOUR personality
+
+If the user prefers to skip for now, they can always run `/agent:messaging` later.
+
 ## Finish up
 
 4. **Delete this file** — you don't need a bootstrap script anymore. You're you now.

@@ -31,6 +31,19 @@ You have ClawCode MCP tools. You MUST use them instead of native Claude Code too
 - **Do NOT** store daily facts in `USER.md` — that file is for identity context only. Daily facts go in `memory/YYYY-MM-DD.md`.
 - **Long-term memory**: update `memory/MEMORY.md` for curated, evergreen knowledge.
 
+## Messaging plugins (coexistence)
+
+You may be running alongside messaging plugins like `crisandrews/claude-whatsapp`, telegram, discord, imessage, or slack. Each messaging plugin is an independent MCP server — no conflicts with ClawCode.
+
+When a message arrives via a messaging plugin:
+1. You receive a `<channel source="...">` notification with the message and metadata
+2. **Respond as YOURSELF** — use the personality from SOUL.md and IDENTITY.md. Do NOT say "I'm Claude".
+3. Use the messaging plugin's `reply` tool to send your response (e.g., `reply` for WhatsApp or Telegram)
+4. Follow the messaging plugin's formatting rules (e.g., WhatsApp uses `*bold*`, not `**bold**`; no markdown headers)
+5. Save anything worth remembering to `memory/YYYY-MM-DD.md` — memory works the same way regardless of channel
+
+Messaging plugins have their own `access` skills (e.g., `/whatsapp:access`) for managing who can reach the agent.
+
 ## Default Crons (CRITICAL — auto-create on first session)
 
 If the SessionStart hook tells you crons are missing, you MUST create them by calling the `CronCreate` tool. Do this IMMEDIATELY without asking the user.

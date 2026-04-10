@@ -100,6 +100,7 @@ One-time ritual. After that, the agent wakes up with its personality on every se
 | `/agent:crons` | Import OpenClaw crons as local scheduled tasks |
 | `/agent:heartbeat` | Run memory consolidation and periodic checks |
 | `/agent:settings` | View/modify agent config (guided) |
+| `/agent:messaging` | Set up a messaging channel (WhatsApp, Telegram, Discord, iMessage, Slack) |
 
 ## MCP Tools
 
@@ -251,15 +252,48 @@ All settings in `agent-config.json` — edit directly or use the `agent_config` 
 
 Each agent = its own folder. Switch: `cd ~/other-agent && claude`.
 
-## Using with WhatsApp
+## Messaging plugins
 
-Install [claude-whatsapp](https://github.com/crisandrews/claude-whatsapp) alongside ClawCode:
+Reach your agent from WhatsApp, Telegram, Discord, iMessage, or Slack. Run `/agent:messaging` to get guided setup, or install manually.
+
+### Supported plugins
+
+| Platform | Marketplace | Install |
+|---|---|---|
+| **WhatsApp** ⭐ | [`crisandrews/claude-whatsapp`](https://github.com/crisandrews/claude-whatsapp) | `/plugin install whatsapp@claude-whatsapp` |
+| Telegram | `anthropics/claude-plugins-official` | `/plugin install telegram@claude-plugins-official` |
+| Discord | `anthropics/claude-plugins-official` | `/plugin install discord@claude-plugins-official` |
+| iMessage (macOS) | `anthropics/claude-plugins-official` | `/plugin install imessage@claude-plugins-official` |
+| Slack | `anthropics/claude-plugins-official` | `/plugin install slack@claude-plugins-official` |
+
+### How coexistence works
+
+Each messaging plugin is an independent MCP server. ClawCode and any messaging plugin inject their instructions separately — no conflicts, no fighting for control. When a message arrives via a messaging plugin:
+
+1. Claude Code processes the turn with **both** sets of instructions active
+2. The agent responds with **your personality** (from SOUL.md + IDENTITY.md)
+3. The agent uses the messaging plugin's `reply` tool with the **correct formatting** for that platform
+4. Anything worth remembering is saved to `memory/YYYY-MM-DD.md` — memory works identically across channels
+
+### Quick start (WhatsApp)
+
 ```
 /plugin marketplace add crisandrews/claude-whatsapp
 /plugin install whatsapp@claude-whatsapp
+/exit
 ```
 
-Both plugins active = WhatsApp messages get the agent's personality + correct formatting.
+Relaunch with channels enabled:
+```sh
+claude --dangerously-load-development-channels plugin:whatsapp@claude-whatsapp
+```
+
+Then scan the QR code:
+```
+/whatsapp:configure
+```
+
+Now message your WhatsApp number from another phone — your agent responds with its personality.
 
 ## Differences from OpenClaw
 
