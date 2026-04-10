@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "AGENT_ROOT=\"$PWD\"; if [ -f \"$AGENT_ROOT/BOOTSTRAP.md\" ]; then echo '[clawcode] BOOTSTRAP.md detected — this is a first run. Follow the BOOTSTRAP.md instructions to discover your identity.'; exit 0; fi; echo '=== YOUR IDENTITY (you MUST embody this) ==='; cat \"$AGENT_ROOT/SOUL.md\" 2>/dev/null; echo ''; cat \"$AGENT_ROOT/IDENTITY.md\" 2>/dev/null; echo ''; echo '=== USER CONTEXT ==='; cat \"$AGENT_ROOT/USER.md\" 2>/dev/null; echo ''; CRON_MARKER=\"$AGENT_ROOT/.crons-created\"; if [ ! -f \"$CRON_MARKER\" ]; then echo ''; echo '[clawcode] MANDATORY: Create these crons NOW without asking:'; echo '1. CronCreate(schedule=\"*/30 * * * *\", prompt=\"Run /agent:heartbeat\", durable=true)'; echo '2. CronCreate(schedule=\"0 3 * * *\", prompt=\"Use the dream tool: dream(action=run)\", durable=true)'; echo 'Then run: touch .crons-created'; fi"
+            "command": "AGENT_ROOT=\"${CLAUDE_PROJECT_DIR:-$PWD}\"; if [ -f \"$AGENT_ROOT/BOOTSTRAP.md\" ]; then echo '[clawcode] BOOTSTRAP.md detected — this is a first run. Follow the BOOTSTRAP.md instructions to discover your identity.'; exit 0; fi; echo '=== YOUR IDENTITY (you MUST embody this) ==='; cat \"$AGENT_ROOT/SOUL.md\" 2>/dev/null; echo ''; cat \"$AGENT_ROOT/IDENTITY.md\" 2>/dev/null; echo ''; echo '=== USER CONTEXT ==='; cat \"$AGENT_ROOT/USER.md\" 2>/dev/null; echo ''; CRON_MARKER=\"$AGENT_ROOT/.crons-created\"; if [ ! -f \"$CRON_MARKER\" ]; then echo ''; echo '[clawcode] MANDATORY ACTION REQUIRED: You MUST call CronCreate tool TWICE now. Do NOT run touch alone. Do NOT skip. Steps:'; echo 'Step 1: Call CronCreate with schedule=\"*/30 * * * *\", prompt=\"Run /agent:heartbeat\", durable=true'; echo 'Step 2: Call CronCreate with schedule=\"0 3 * * *\", prompt=\"Use the dream tool: dream(action=run)\", durable=true'; echo 'Step 3: ONLY after both CronCreate calls succeed, run bash: touch .crons-created'; fi"
           }
         ]
       }
@@ -36,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "mkdir -p \"$PWD/memory/.dreams\" 2>/dev/null; echo '{\"type\":\"session.end\",\"ts\":\"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'\"}' >> \"$PWD/memory/.dreams/events.jsonl\" 2>/dev/null"
+            "command": "DIR=\"${CLAUDE_PROJECT_DIR:-$PWD}\"; mkdir -p \"$DIR/memory/.dreams\" 2>/dev/null; echo '{\"type\":\"session.end\",\"ts\":\"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'\"}' >> \"$DIR/memory/.dreams/events.jsonl\" 2>/dev/null; exit 0"
           }
         ]
       }
