@@ -1,82 +1,93 @@
 ---
 name: new
-description: Start a new session — save summary to memory first. Works from CLI or messaging channels. Triggers on /new, /agent:new, "nueva sesión", "new session", "empezar de nuevo".
+description: Start a new session — save summary to memory, then mark as reset so next message gets a fresh greeting. OpenClaw-compatible. Triggers on /new, /reset, /agent:new, "nueva sesión", "new session", "reset".
 user-invocable: true
 ---
 
-# Start a New Session
+# /new — Start a new session
 
-Save the current session context to memory, then prepare for a fresh session.
+Save the current session to memory, then mark it as "reset pending" so the next message triggers a fresh greeting (like OpenClaw).
 
-## Why this exists
+## How this works (architecture)
 
-- **On CLI**: Native `/clear` drops conversation. Without saving first, the agent forgets everything.
-- **On WhatsApp/Telegram**: There's no session concept per se, but the user might want to "close" a conversation topic. Save the summary so next time they chat, the agent has context.
+OpenClaw's `/new` generates a new session ID and runs a greeting prompt on the next turn. In Claude Code, skills CANNOT invoke native `/clear`. Instead, we:
+
+1. **Save** the current session to `memory/YYYY-MM-DD.md`
+2. **Write a marker** `.session-reset-pending` with the greeting prompt
+3. **Respond** with a brief "new session" acknowledgement
+4. **On the next message**, the agent detects the marker, delivers the greeting, deletes the marker
+
+This is the honest simulation of a session reset when native `/clear` is not invokable.
 
 ## Steps
 
-1. **Detect surface** (CLI vs messaging channel).
+1. **Detect surface** (CLI vs messaging).
 
-2. **Summarize the current session** — concisely (5-15 bullet points):
-   - What was discussed
-   - Decisions made
-   - Facts learned about the user
-   - Tasks completed
-   - Open items
-
-3. **Write the summary** to `memory/YYYY-MM-DD.md` (today's date). APPEND only:
+2. **Summarize the current session** to memory:
    ```bash
    DATE=$(date +%Y-%m-%d)
    TIME=$(date +%H:%M)
    ```
    
-   Format:
+   Append to `memory/$DATE.md`:
    ```markdown
    
-   ## Session summary (<TIME>)
+   ## Session summary (<TIME>) — before /new
    
-   - <bullet>
-   - <bullet>
+   - <key point>
+   - <key point>
    
    ### Open items
    - <pending>
    ```
    
-   Use `cat >> memory/$DATE.md << 'EOF'` or similar to append.
+   If the session was trivial, skip this step but still do the next one.
 
-4. **Verify** the file was updated (cat the last few lines).
+3. **Write the reset marker**:
+   ```bash
+   cat > .session-reset-pending << 'EOF'
+   A new session was started via /new or /reset. Greet the user in your configured persona, if one is provided. Be yourself - use your defined voice, mannerisms, and mood. Keep it to 1-3 sentences and ask what they want to do. If the runtime model differs from default_model in the system prompt, mention the default model. Do not mention internal steps, files, tools, or reasoning.
+   EOF
+   ```
+   
+   (This is the EXACT prompt from OpenClaw's session-reset-prompt.ts)
 
-5. **Respond** per surface:
+4. **Respond** briefly per surface:
 
 ### CLI
 ```
-✅ Session summary saved to memory/<DATE>.md
+🔄 Sesión nueva iniciada. Resumen guardado en memory/<DATE>.md.
 
-Now run /clear to start a fresh session. Your next session will
-remember this via memory_search.
+Escribe algo para recibir el saludo de bienvenida.
+(O si quieres limpiar el contexto del REPL también, ejecuta /clear después.)
 ```
 
 ### WhatsApp
 ```
-✅ *Resumen guardado*
-
-Todo apuntado en memory/<DATE>.md. La próxima vez que me escribas, tendré este contexto.
-
-¿Algo más o cerramos esta conversación?
+🔄 *Sesión reiniciada*. Escribe algo y te saludo de nuevo 👋
 ```
 
 ### Telegram
 ```
-✅ **Session saved**
-
-Summary stored in memory/<DATE>.md. Next conversation will have this context.
+🔄 **Session reset.** Send a message to get the fresh greeting.
 ```
 
-6. **Do NOT** try to invoke `/clear` — you can't. Just tell the user (CLI) or move on (messaging).
+5. **Do NOT** invoke `/clear` — you can't. The marker file handles the "fresh start" on the next message.
+
+## On the NEXT message
+
+When the user sends their next message, you will see `.session-reset-pending` in the workspace. If it exists:
+
+1. **Read** the marker contents — that's the greeting prompt
+2. **Follow it** — greet the user in your configured persona, 1-3 sentences, ask what they want to do
+3. **Delete** `.session-reset-pending`
+4. **Then handle** the user's actual message (if they said more than just a greeting trigger)
+
+This makes `/new` feel like a real session reset, even though technically Claude Code's context still has prior turns.
 
 ## Important
 
-- APPEND only — never overwrite.
-- If the session was trivial (just a greeting, no meaningful content), say "nothing worth saving" and skip.
-- On messaging channels, the "session" concept is fuzzy. Just save the recent conversation context and continue.
-- This is the agent-aware equivalent of OpenClaw's `/new` command.
+- APPEND-only to daily logs, never overwrite.
+- The marker file is the key mechanism — it lets the NEXT turn deliver the greeting.
+- On CLI, the user can additionally run `/clear` to wipe REPL context if desired.
+- This is the OpenClaw-parity implementation of `/new`.

@@ -1,39 +1,39 @@
 ---
 name: compact
-description: Force memory flush before context compaction — save important info to daily log. Works from CLI or messaging channels. Triggers on /compact, /agent:compact, "compactar", "save and compact".
+description: Flush important session context to daily log (manual memory flush). Does NOT invoke native /compact. Triggers on /compact, /agent:compact, /flush, "guarda memoria", "flush".
 user-invocable: true
 ---
 
-# Agent-Aware Compact
+# /compact — Manual memory flush
 
-Save important session context to memory before context compression.
+Save the important parts of the current conversation to `memory/YYYY-MM-DD.md`. This is a manual version of what the PreCompact hook does automatically.
 
-## Context
+## Important — architectural honesty
 
-- **CLI**: The user is about to run native `/compact`. Save first to prevent information loss.
-- **Messaging channels**: There's no "compact" concept — but the user might want to force a checkpoint of what's been discussed. Treat it as "save everything important now".
+- **On CLI**: The native `/compact` compacts Claude Code's context. A skill CANNOT invoke it. If you run `/compact` in the REPL, the native one runs (and the PreCompact hook fires to save memory automatically). This skill is only useful if you want a MANUAL flush WITHOUT triggering actual compaction.
+- **On messaging channels** (WhatsApp, Telegram, etc.): There is NO native compact. Each message is its own turn. This skill just saves the recent exchange to memory — useful as an explicit "save this" checkpoint.
+
+This skill does NOT say "now run /compact" (that would cause a loop if the user pastes it again). It just saves and confirms.
 
 ## Steps
 
-1. **Detect surface** (CLI vs messaging).
+1. **Detect surface**.
 
-2. **Scan for information worth keeping**:
-   - Decisions made this session
-   - Facts the user shared (names, preferences, IDs, dates)
-   - Tasks completed or pending
-   - Problems solved and solutions
-   - Corrections/clarifications from the user
+2. **Scan the current session** for things worth remembering:
+   - Decisions made
+   - Facts the user shared
+   - Tasks discussed
+   - Problems solved
 
-3. **Write memory flush entry** to `memory/YYYY-MM-DD.md`. APPEND only:
+3. **Append to daily log**:
    ```bash
    DATE=$(date +%Y-%m-%d)
    TIME=$(date +%H:%M)
    ```
    
-   Format:
    ```markdown
    
-   ## Memory flush (<TIME>) — manual
+   ## Manual flush (<TIME>)
    
    ### Decisions
    - ...
@@ -45,37 +45,31 @@ Save important session context to memory before context compression.
    - ...
    ```
 
-4. **Verify** the write.
-
-5. **Respond** per surface:
+4. **Respond** briefly per surface:
 
 ### CLI
 ```
-✅ Memory flush complete. Saved to memory/<DATE>.md
+✅ Flush completo → memory/<DATE>.md
 
-Now run /compact to compress the session. The flushed info is
-searchable via memory_search.
+Si quieres que Claude Code también compacte el contexto, ejecuta /compact nativo.
+(El PreCompact hook ya guarda memoria automáticamente cuando eso pasa.)
 ```
 
 ### WhatsApp
 ```
-✅ *Guardado*
-
-Los puntos clave están en memory/<DATE>.md. Sigo atento a lo siguiente.
+✅ *Guardado* → memory/<DATE>.md
 ```
 
 ### Telegram
 ```
-✅ **Saved**
-
-Key points stored in memory/<DATE>.md. Ready for the next message.
+✅ **Saved** → memory/<DATE>.md
 ```
 
-6. **Do NOT** invoke `/compact` yourself — you can't. On CLI, tell the user. On messaging, just save and continue.
+5. **Do NOT** say "now run /compact" — that causes a loop. The user decides if they want to run the native command.
 
 ## Important
 
-- APPEND only, never overwrite.
-- If nothing substantive to save, say so: "Nada importante que guardar, puedes seguir normal".
-- The PreCompact hook fires automatically on native auto-compaction. `/compact` is the manual version.
-- This is the agent-aware equivalent of OpenClaw's `/compact` command.
+- APPEND-only.
+- If nothing substantive to save, say so: "Nada importante que guardar ahora".
+- The native `/compact` in CLI is the real compaction. This skill is just the memory-save part, usable independently.
+- This is the agent-aware memory-flush equivalent.

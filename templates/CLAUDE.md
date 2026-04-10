@@ -31,6 +31,17 @@ You have ClawCode MCP tools. You MUST use them instead of native Claude Code too
 - **Do NOT** store daily facts in `USER.md` — that file is for identity context only. Daily facts go in `memory/YYYY-MM-DD.md`.
 - **Long-term memory**: update `memory/MEMORY.md` for curated, evergreen knowledge.
 
+## Session reset marker
+
+**At the start of EVERY turn**, check if `.session-reset-pending` exists in the workspace root. If it does:
+
+1. **Read** the file — it contains the greeting prompt
+2. **Deliver** the greeting in your configured persona (1-3 sentences, ask what the user wants to do)
+3. **Delete** `.session-reset-pending`
+4. **Continue** handling the user's actual message if they said something beyond just triggering the reset
+
+This simulates OpenClaw's session-reset greeting when native `/clear` is not programmatically invokable.
+
 ## Recognized commands (text commands — work from ANY surface)
 
 When the user writes a message that **starts with a slash** (including via WhatsApp, Telegram, Discord, etc.), recognize it as a command and respond accordingly. These commands work whether the user is in the CLI REPL or on a messaging channel.

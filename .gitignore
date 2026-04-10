@@ -5,6 +5,7 @@ tests/
 agent-config.json
 .qmd/
 .crons-created
+.session-reset-pending
 memory/.memory.sqlite
 memory/.memory.sqlite-wal
 memory/.memory.sqlite-shm
