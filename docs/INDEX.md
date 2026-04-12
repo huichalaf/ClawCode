@@ -11,6 +11,7 @@ Master index of every capability. The agent reads this first when it needs to re
 | Agent status | _(retro-doc pending)_ | `/agent:status`, `/status` | `agent_status` |
 | Agent config | _(retro-doc pending)_ | `/agent:settings` | `agent_config` |
 | Doctor | [doctor.md](doctor.md) | `/agent:doctor [--fix]` | `agent_doctor` |
+| Skill manager | [skill-manager.md](skill-manager.md) | `/agent:skill install\|list\|remove` | `skill_install`, `skill_list`, `skill_remove` |
 
 ## Optional (user enables)
 

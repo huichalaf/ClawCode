@@ -81,6 +81,7 @@ One-time ritual. After that, the agent wakes up with its personality on every se
 | `/agent:heartbeat` | Run memory consolidation and periodic checks |
 | `/agent:settings` | View/modify agent config (guided) |
 | `/agent:doctor [--fix]` | Diagnose agent health (config, memory, crons, HTTP bridge, etc.). `--fix` applies safe auto-repairs |
+| `/agent:skill install\|list\|remove` | Install community skills from GitHub, list installed, remove by name |
 | `/agent:messaging` | Set up a messaging channel (WhatsApp, Telegram, Discord, iMessage, Slack) |
 | `/agent:status` | Agent status dashboard (identity + memory + dream stats) |
 | `/agent:usage` | Agent resource usage (memory size, files, dreams) |
@@ -99,6 +100,9 @@ One-time ritual. After that, the agent wakes up with its personality on every se
 | `agent_config` | Get/set config programmatically (no JSON editing needed) |
 | `agent_status` | Agent identity, memory stats, dream tracking |
 | `agent_doctor` | Diagnose + optionally auto-repair agent health (`action: check \| fix`) |
+| `skill_install` | Install a skill from GitHub or local path, with scope and requirements gating |
+| `skill_list` | List installed skills across plugin / project / user scopes |
+| `skill_remove` | Remove a skill (requires `confirm: true`) |
 | `chat_inbox_read` | Read pending WebChat messages (only when HTTP bridge is on) |
 | `webchat_reply` | Send a reply to the open WebChat browser (only when HTTP bridge is on) |
 

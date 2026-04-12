@@ -15,6 +15,13 @@ import {
 } from "./lib/doctor.ts";
 import { DreamEngine } from "./lib/dreaming.ts";
 import { HttpBridge, HTTP_DEFAULTS } from "./lib/http-bridge.ts";
+import {
+  formatInstallResult,
+  formatList,
+  install as skillInstall,
+  list as skillList,
+  remove as skillRemove,
+} from "./lib/skill-manager.ts";
 import { extractKeywords } from "./lib/keywords.ts";
 import { MemoryDB } from "./lib/memory-db.ts";
 import { QmdManager } from "./lib/qmd-manager.ts";
@@ -559,6 +566,73 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: "skill_install",
+      description:
+        "Install a skill from a source into the agent. Accepts GitHub shorthand (owner/repo), full URLs, optional branch via @ and subdir via #, or a local directory path. Detects OpenClaw-flavored skills and refuses them (pointing the user at /agent:import-skill). Rejects OS/node mismatches; warns on missing binaries or env vars. Scope: plugin (default, ./skills/), project (.claude/skills/), user (~/.claude/skills/).",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          source: {
+            type: "string",
+            description: "owner/repo | owner/repo@branch#subdir | https URL | /local/path",
+          },
+          scope: {
+            type: "string",
+            enum: ["plugin", "project", "user"],
+            description: "Install destination (default: plugin)",
+          },
+          force: {
+            type: "boolean",
+            description: "Overwrite an existing skill with the same name",
+          },
+          dryRun: {
+            type: "boolean",
+            description: "Report what would happen without writing",
+          },
+        },
+        required: ["source"],
+      },
+    },
+    {
+      name: "skill_list",
+      description:
+        "List installed skills across scopes (plugin, project, user). Returns name, scope, description, user-invocable flag.",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          format: {
+            type: "string",
+            enum: ["card", "json"],
+            description: "'card' (default) human-readable list, 'json' structured array",
+          },
+        },
+      },
+    },
+    {
+      name: "skill_remove",
+      description:
+        "Remove an installed skill by name. Requires confirm=true to actually delete — otherwise returns a dry-run description of what would be removed.",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          name: {
+            type: "string",
+            description: "Skill name (the 'name' field from its SKILL.md frontmatter)",
+          },
+          scope: {
+            type: "string",
+            enum: ["plugin", "project", "user"],
+            description: "Narrow to a specific scope (default: search all)",
+          },
+          confirm: {
+            type: "boolean",
+            description: "Must be true to actually delete",
+          },
+        },
+        required: ["name"],
+      },
+    },
+    {
       name: "chat_inbox_read",
       description:
         "Read pending messages from the WebChat inbox. Use this to check for new browser-based chat messages. Returns messages in order. Messages are removed from the inbox once read.",
@@ -896,6 +970,75 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         isError: true,
       };
     }
+  }
+
+  if (name === "skill_install") {
+    const source = String(params.source || "").trim();
+    if (!source) {
+      return {
+        content: [{ type: "text", text: "Error: 'source' is required" }],
+        isError: true,
+      };
+    }
+    const scope = (params.scope as "plugin" | "project" | "user") || "plugin";
+    const force = Boolean(params.force);
+    const dryRun = Boolean(params.dryRun);
+
+    const result = skillInstall(WORKSPACE, source, { scope, force, dryRun });
+    return {
+      content: [{ type: "text", text: formatInstallResult(result) }],
+      isError: !result.ok,
+    };
+  }
+
+  if (name === "skill_list") {
+    const format = String(params.format || "card");
+    const skills = skillList(WORKSPACE);
+    if (format === "json") {
+      return {
+        content: [{ type: "text", text: JSON.stringify(skills, null, 2) }],
+      };
+    }
+    return { content: [{ type: "text", text: formatList(skills) }] };
+  }
+
+  if (name === "skill_remove") {
+    const skillName = String(params.name || "").trim();
+    if (!skillName) {
+      return {
+        content: [{ type: "text", text: "Error: 'name' is required" }],
+        isError: true,
+      };
+    }
+    const scope = params.scope as "plugin" | "project" | "user" | undefined;
+    const confirm = Boolean(params.confirm);
+
+    const result = skillRemove(WORKSPACE, skillName, { scope, confirm });
+    if (!result.ok && !confirm && result.removed) {
+      // Dry-run path: explain what would be removed
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Would remove "${result.removed.name}" from ${result.removed.dir} (scope: ${result.removed.scope}).\n\nPass confirm=true to actually delete.`,
+          },
+        ],
+      };
+    }
+    if (!result.ok) {
+      return {
+        content: [{ type: "text", text: `❌ ${result.reason}` }],
+        isError: true,
+      };
+    }
+    return {
+      content: [
+        {
+          type: "text",
+          text: `✅ Removed "${result.removed!.name}" from ${result.removed!.dir}`,
+        },
+      ],
+    };
   }
 
   if (name === "chat_inbox_read") {
