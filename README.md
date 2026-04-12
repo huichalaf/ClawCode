@@ -1,60 +1,65 @@
 # ClawCode
 
-OpenClaw-compatible agent system for Claude Code. Give Claude Code a persistent personality, memory, dreaming, and agent behavior — using the same format as [OpenClaw](https://github.com/openclaw/openclaw).
+> **Release 1.0** — Persistent agents for Claude Code with memory, dreaming, and heartbeats.
 
-## What it does
+Claude Code is stateless by default. Every session starts from zero — no memory of who you are, what you talked about, or how the agent should behave. If you want a persistent AI agent that remembers, dreams, and has a personality, you need to build all of that yourself.
 
-- **Personality** — SOUL.md, IDENTITY.md, USER.md define who the agent is
-- **Protocols** — AGENTS.md, TOOLS.md, HEARTBEAT.md define how it operates
-- **Memory** — SQLite + FTS5 search with BM25, temporal decay, MMR diversity
-- **QMD** (optional) — Local embeddings + vector search + reranking, no API keys
-- **Dreaming** — Nightly 3-phase consolidation promotes recalled memories to MEMORY.md
-- **Heartbeats** — Periodic memory review every 30 minutes
-- **Bootstrap** — Conversational onboarding where the agent discovers its identity
-- **Import** — Bring existing OpenClaw agents, memory, and crons over
-- **Hooks** — Pre-compaction flush, session summary, dream tracking
-- **Plugin coexistence** — Works alongside WhatsApp, Telegram, etc.
-
-## How it works
-
-- MCP server reads bootstrap files and injects them as `instructions` into Claude Code
-- Every conversation gets the agent's personality automatically
-- Multiple plugins coexist — each MCP server's instructions are injected independently
-- ClawCode (personality) + WhatsApp plugin (messaging) work together seamlessly
+ClawCode is a plugin that turns Claude Code into a stateful agent. It gives Claude a persistent identity (name, personality, vibe), a searchable memory system with full-text search and temporal decay, nightly dreaming that consolidates important memories, and periodic heartbeats that keep the agent aware of what matters. Compatible with the [OpenClaw](https://github.com/openclaw/openclaw) agent format — import existing agents with one command.
 
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) v18+
-- Optional: [QMD](https://github.com/tobi/qmd) for enhanced semantic search
 
 ## Quick Setup
 
-**1. Create a folder for your agent** (each agent lives in its own folder):
+**1. Create a folder for your agent.**
+
+Each agent lives in its own folder. Create one and open Claude Code there:
+
 ```sh
 mkdir ~/my-agent && cd ~/my-agent
 claude
 ```
 
-**2. Install the plugin:**
+**2. Install the plugin.**
+
+Inside Claude Code, add the marketplace:
+
 ```
 /plugin marketplace add crisandrews/ClawCode
+```
+
+Then install the plugin:
+
+```
 /plugin install agent@clawcode
 ```
 
-**3. Create your agent** (starts bootstrap ritual) or **import from OpenClaw:**
+When prompted for scope, select **"Install for you, in this repo only (local scope)"** — this keeps the agent isolated to this folder.
+
+**3. Create your agent:**
+
 ```
 /agent:create
+```
+
+This copies the template files and starts the bootstrap ritual — a casual conversation where the agent discovers its name, personality, and emoji. You can also import an existing OpenClaw agent instead:
+
+```
 /agent:import
 ```
 
-**4. Reload** to apply the personality:
+**4. Reload to apply the personality:**
+
 ```
 /mcp
 ```
 
-## Bootstrap Ritual
+The agent now wakes up with its identity on every session.
 
-When you create a new agent, a `BOOTSTRAP.md` acts as its "birth certificate":
+## Bootstrap ritual
+
+When you create a new agent, a `BOOTSTRAP.md` acts as its birth certificate:
 
 - Agent sees BOOTSTRAP.md and starts a casual conversation
 - Together you discover the agent's name, personality, vibe, emoji
@@ -66,7 +71,61 @@ When you create a new agent, a `BOOTSTRAP.md` acts as its "birth certificate":
 
 One-time ritual. After that, the agent wakes up with its personality on every session.
 
-## Directory Structure
+## Skills
+
+| Skill | Description |
+| --- | --- |
+| `/agent:create` | Create a new agent with bootstrap ritual |
+| `/agent:import [id]` | Import an OpenClaw agent (personality + memory + crons) |
+| `/agent:crons` | Import OpenClaw crons as local scheduled tasks |
+| `/agent:heartbeat` | Run memory consolidation and periodic checks |
+| `/agent:settings` | View/modify agent config (guided) |
+| `/agent:messaging` | Set up a messaging channel (WhatsApp, Telegram, Discord, iMessage, Slack) |
+| `/agent:status` | Agent status dashboard (identity + memory + dream stats) |
+| `/agent:usage` | Agent resource usage (memory size, files, dreams) |
+| `/agent:new` | Save session summary to memory, then prepare for `/clear` |
+| `/agent:compact` | Save important context to memory before context compression |
+| `/whoami` | Show sender info and agent identity |
+| `/help` | List all available commands |
+
+## MCP tools
+
+| Tool | Description |
+| --- | --- |
+| `memory_search` | Search memory with BM25 ranking, temporal decay, and MMR diversity |
+| `memory_get` | Read specific lines from a memory or bootstrap file |
+| `dream` | Dreaming: `status`, `run`, or `dry-run` |
+| `agent_config` | Get/set config programmatically (no JSON editing needed) |
+| `agent_status` | Agent identity, memory stats, dream tracking |
+
+### Configuring via tool
+
+```
+agent_config(action='get')                                    # View all settings
+agent_config(action='set', key='memory.backend', value='qmd') # Enable QMD
+agent_config(action='set', key='heartbeat.activeHours.start', value='09:00')
+agent_config(action='set', key='memory.builtin.halfLifeDays', value='60')
+```
+
+After changes: `/mcp` to apply.
+
+## Personality files
+
+Every agent has these files in its root. Templates live in `templates/` and are copied on `/agent:create`.
+
+| File | Purpose |
+| --- | --- |
+| `SOUL.md` | Core truths and boundaries — the agent's philosophy |
+| `IDENTITY.md` | Name, emoji, vibe, birth date |
+| `USER.md` | Your info, timezone, language, preferences |
+| `AGENTS.md` | Operational protocols and behavioral rules |
+| `TOOLS.md` | Platform-specific formatting notes (WhatsApp, Discord, etc.) |
+| `HEARTBEAT.md` | Instructions for periodic checks |
+| `BOOTSTRAP.md` | First-run ritual (deleted after onboarding) |
+
+These files are injected as system instructions via MCP — every conversation gets the agent's personality automatically.
+
+## Directory structure
 
 ```
 ~/my-agent/
@@ -83,51 +142,14 @@ One-time ritual. After that, the agent wakes up with its personality on every se
 │   ├── YYYY-MM-DD.md     # Daily logs (append-only)
 │   ├── .memory.sqlite    # Search index (auto-generated)
 │   └── .dreams/          # Dream tracking data
-├── templates/            # Templates for new agents
-├── lib/                  # Memory engine
 ├── hooks/                # Lifecycle hooks
 ├── skills/               # Agent skills
+├── lib/                  # Memory engine
 ├── server.ts             # MCP server
 └── package.json          # Dependencies
 ```
 
-## Skills
-
-| Skill | Description |
-|---|---|
-| `/agent:create <name>` | Create a new agent with bootstrap ritual |
-| `/agent:import [id]` | Import an OpenClaw agent (personality + memory) |
-| `/agent:crons` | Import OpenClaw crons as local scheduled tasks |
-| `/agent:heartbeat` | Run memory consolidation and periodic checks |
-| `/agent:settings` | View/modify agent config (guided) |
-| `/agent:messaging` | Set up a messaging channel (WhatsApp, Telegram, Discord, iMessage, Slack) |
-| `/agent:status` | Agent status dashboard (identity + memory + dream stats) |
-| `/agent:usage` | Agent resource usage (memory size, files, dreams) |
-| `/agent:new` | Save session summary to memory, then prepare for `/clear` |
-| `/agent:compact` | Save important context to memory, then prepare for `/compact` |
-
-## MCP Tools
-
-| Tool | Description |
-|---|---|
-| `memory_search` | Search memory — returns snippets with citations |
-| `memory_get` | Read specific lines from a memory file |
-| `dream` | Dreaming: `status`, `run`, or `dry-run` |
-| `agent_config` | Get/set config programmatically (no JSON editing needed) |
-| `agent_status` | Agent identity, memory stats, dream tracking |
-
-### Configuring via tool (no JSON editing)
-
-```
-agent_config(action='get')                                    # View all settings
-agent_config(action='set', key='memory.backend', value='qmd') # Enable QMD
-agent_config(action='set', key='heartbeat.activeHours.start', value='09:00')
-agent_config(action='set', key='memory.builtin.halfLifeDays', value='60')
-```
-
-After changes: `/mcp` to apply.
-
-## Memory System
+## Memory system
 
 ### Builtin (default)
 
@@ -158,7 +180,7 @@ After changes: `/mcp` to apply.
 - **Heartbeat** — Every 30 min, reviews daily files and consolidates into MEMORY.md
 - **Dream tracking** — Every `memory_search` is recorded with concept tags and scores
 
-### Dreaming
+## Dreaming
 
 Nightly cron (3 AM) runs 3-phase memory consolidation:
 
@@ -175,7 +197,7 @@ Nightly cron (3 AM) runs 3-phase memory consolidation:
 **Deep phase — ranks candidates with 6 weighted signals:**
 
 | Signal | Weight | Measures |
-|---|---|---|
+| --- | --- | --- |
 | Relevance | 0.30 | Average retrieval quality |
 | Frequency | 0.24 | Times recalled |
 | Query diversity | 0.15 | Distinct days searched |
@@ -191,17 +213,28 @@ Nightly cron (3 AM) runs 3-phase memory consolidation:
 
 Run manually: `dream(action='run')` or preview with `dream(action='dry-run')`.
 
+## Hooks
+
+| Hook | When | What |
+| --- | --- | --- |
+| `SessionStart` | Session begins | Shows identity, creates heartbeat + dreaming crons if missing |
+| `PreCompact` | Before context compression | Reminds agent to save info to daily log |
+| `Stop` | Agent about to stop | Reminds agent to write session summary |
+| `SessionEnd` | Session closes | Logs event to dream tracking |
+
 ## Configuration
 
 All settings in `agent-config.json` — edit directly or use the `agent_config` tool.
 
 ### Memory backend
+
 ```json
 { "memory": { "backend": "builtin" } }
 { "memory": { "backend": "qmd", "qmd": { "searchMode": "vsearch" } } }
 ```
 
 ### Heartbeat active hours
+
 ```json
 {
   "heartbeat": {
@@ -212,11 +245,13 @@ All settings in `agent-config.json` — edit directly or use the `agent_config` 
 ```
 
 ### Dreaming schedule
+
 ```json
 { "dreaming": { "schedule": "0 3 * * *", "timezone": "America/Santiago" } }
 ```
 
 ### Builtin search tuning
+
 ```json
 {
   "memory": {
@@ -225,61 +260,51 @@ All settings in `agent-config.json` — edit directly or use the `agent_config` 
 }
 ```
 
-## Hooks
+## Going further
 
-| Hook | When | What |
-|---|---|---|
-| `SessionStart` | Session begins | Shows identity, creates heartbeat + dreaming crons if missing |
-| `PreCompact` | Before context compression | Reminds agent to save info to daily log |
-| `Stop` | Agent about to stop | Reminds agent to write session summary |
-| `SessionEnd` | Session closes | Logs event to dream tracking |
+### Importing from OpenClaw
 
-## Importing from OpenClaw
-
-### Agents (`/agent:import`)
+**Agents** (`/agent:import`):
 - Lists agents from `~/.openclaw/workspace*/`
 - Copies bootstrap files (SOUL.md, IDENTITY.md, USER.md, etc.)
 - Optionally imports memory (MEMORY.md + recent daily files)
 - Adapts AGENTS.md for Claude Code (removes OpenClaw-specific tool references)
+- Interactive skill import with 3-tier classification:
+  - **GREEN** — importable as-is
+  - **YELLOW** — needs adaptation (comments added for manual review)
+  - **RED** — depends on OpenClaw infrastructure (skipped, documented in IMPORT_BACKLOG.md)
 - Credentials are never copied
 
-### Crons (`/agent:crons`)
+**Crons** (`/agent:crons`):
 - Reads `~/.openclaw/cron/jobs.json`
 - Converts to Claude Code local scheduled tasks (CronCreate)
+- Same 3-tier classification for each cron
 - Cron expressions kept as-is (local timezone)
 - Prompts adapted for Claude Code tools
 - Delivery channels mapped to MCP tool instructions
 - `durable: true` — persist across restarts (7-day expiration)
 - Only run while Claude Code is open
 
-## Multiple agents
-
-Each agent = its own folder. Switch: `cd ~/other-agent && claude`.
-
-## Messaging plugins
+### Messaging channels
 
 Reach your agent from WhatsApp, Telegram, Discord, iMessage, or Slack. Run `/agent:messaging` to get guided setup, or install manually.
 
-### Supported plugins
-
 | Platform | Marketplace | Install |
-|---|---|---|
-| **WhatsApp** ⭐ | [`crisandrews/claude-whatsapp`](https://github.com/crisandrews/claude-whatsapp) | `/plugin install whatsapp@claude-whatsapp` |
+| --- | --- | --- |
+| **WhatsApp** | `crisandrews/claude-whatsapp` | `/plugin install whatsapp@claude-whatsapp` |
 | Telegram | `anthropics/claude-plugins-official` | `/plugin install telegram@claude-plugins-official` |
 | Discord | `anthropics/claude-plugins-official` | `/plugin install discord@claude-plugins-official` |
 | iMessage (macOS) | `anthropics/claude-plugins-official` | `/plugin install imessage@claude-plugins-official` |
 | Slack | `anthropics/claude-plugins-official` | `/plugin install slack@claude-plugins-official` |
 
-### How coexistence works
-
-Each messaging plugin is an independent MCP server. ClawCode and any messaging plugin inject their instructions separately — no conflicts, no fighting for control. When a message arrives via a messaging plugin:
+Each messaging plugin is an independent MCP server. ClawCode and any messaging plugin inject their instructions separately — no conflicts. When a message arrives:
 
 1. Claude Code processes the turn with **both** sets of instructions active
 2. The agent responds with **your personality** (from SOUL.md + IDENTITY.md)
 3. The agent uses the messaging plugin's `reply` tool with the **correct formatting** for that platform
 4. Anything worth remembering is saved to `memory/YYYY-MM-DD.md` — memory works identically across channels
 
-### Quick start (WhatsApp)
+**Quick start (WhatsApp):**
 
 ```
 /plugin marketplace add crisandrews/claude-whatsapp
@@ -288,21 +313,87 @@ Each messaging plugin is an independent MCP server. ClawCode and any messaging p
 ```
 
 Relaunch with channels enabled:
+
 ```sh
 claude --dangerously-load-development-channels plugin:whatsapp@claude-whatsapp
 ```
 
 Then scan the QR code:
+
 ```
 /whatsapp:configure
 ```
 
 Now message your WhatsApp number from another phone — your agent responds with its personality.
 
+### Multiple agents
+
+Each agent = its own folder. Switch: `cd ~/other-agent && claude`.
+
+### Always-on (run as a background service)
+
+To keep your agent running permanently, wrap Claude Code with a process manager:
+
+**macOS (launchd):**
+
+Create `~/Library/LaunchAgents/com.clawcode-agent.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.clawcode-agent</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>claude</string>
+        <string>--dangerously-skip-permissions</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/YOUR_USER/my-agent</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/clawcode-agent.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/clawcode-agent.err</string>
+</dict>
+</plist>
+```
+
+```sh
+launchctl load ~/Library/LaunchAgents/com.clawcode-agent.plist
+```
+
+**Linux (systemd):**
+
+Create `~/.config/systemd/user/clawcode-agent.service`:
+
+```ini
+[Unit]
+Description=ClawCode Agent (Claude Code)
+
+[Service]
+WorkingDirectory=/home/YOUR_USER/my-agent
+ExecStart=claude --dangerously-skip-permissions
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+```
+
+```sh
+systemctl --user enable --now clawcode-agent
+```
+
 ## Differences from OpenClaw
 
 | Feature | OpenClaw | ClawCode |
-|---|---|---|
+| --- | --- | --- |
 | Runtime | 24/7 gateway daemon | Per-session (Claude Code) |
 | Multi-channel | Native | Via MCP plugins |
 | Sub-agents | Persistent identity | Ephemeral |
@@ -314,6 +405,15 @@ Now message your WhatsApp number from another phone — your agent responds with
 | Bootstrap | Conversational | Conversational |
 | Config | `openclaw.json` | `agent-config.json` + `agent_config` tool |
 | Voice/TTS | Built-in | Not included |
+
+## Troubleshooting
+
+- **Agent has no personality after setup** — Run `/mcp` to reload the MCP server. The personality is injected via system instructions on each session start.
+- **Memory search returns nothing** — The SQLite index builds automatically on first search. If using QMD, check that `qmd` is installed and the backend is set: `agent_config(action='set', key='memory.backend', value='qmd')`.
+- **Dreaming never runs** — Crons only run while Claude Code is open. Check with `dream(action='status')`. For manual consolidation: `dream(action='run')`.
+- **Heartbeat runs outside active hours** — Set active hours: `agent_config(action='set', key='heartbeat.activeHours.start', value='08:00')`.
+- **Import from OpenClaw fails** — Make sure `~/.openclaw/` exists and contains workspace directories. Run `/agent:import` for an interactive walkthrough.
+- **BOOTSTRAP.md won't delete** — The agent deletes it at the end of the bootstrap ritual. If it persists, the ritual didn't complete — run through it again or delete manually.
 
 ## License
 
