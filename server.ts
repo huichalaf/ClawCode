@@ -102,7 +102,7 @@ function searchMemory(query: string, maxResults?: number): SearchResult[] {
 }
 
 // ---------------------------------------------------------------------------
-// Bootstrap file loading (mirrors OpenClaw's loadWorkspaceBootstrapFiles)
+// Bootstrap file loading
 // ---------------------------------------------------------------------------
 
 const BOOTSTRAP_FILES = [
@@ -179,19 +179,16 @@ function _loadBootstrapFilesInner(): string {
   );
 
   // -- Runtime adaptation
-  sections.push("## Runtime Adaptation\n");
-  sections.push("You are running inside Claude Code, NOT OpenClaw.");
+  sections.push("## Runtime\n");
+  sections.push("You are running inside Claude Code.");
   sections.push(
     "Use Claude Code tools: Bash, Read, Write, Edit, Grep, Glob, Agent, WebSearch, WebFetch."
   );
   sections.push(
-    "OpenClaw-specific tools (message, sessions_spawn, browser, gateway, cron, nodes, canvas, etc.) are NOT available."
+    "Some workspaces include skill files (e.g. SOUL.md, AGENTS.md) that reference tools from a different agent system — names like `message`, `sessions_spawn`, `browser tool`, `gateway`, `cron tool`, `nodes`, `canvas`. Those are NOT available here. If you encounter them in skill instructions, treat them as descriptive intent and substitute with the closest Claude Code equivalent (e.g. `Agent` for sub-agents, messaging plugin `reply` for `message`)."
   );
   sections.push(
-    "Ignore references to HEARTBEAT_OK, NO_REPLY, ANNOUNCE_SKIP, SILENT_REPLY — they do not apply here."
-  );
-  sections.push(
-    "Ignore references to `openclaw` CLI commands, gateway restart, config.apply — they do not apply here."
+    "Ignore tokens like HEARTBEAT_OK, NO_REPLY, ANNOUNCE_SKIP, SILENT_REPLY — they do not apply here."
   );
   sections.push(
     "For WhatsApp/messaging: use MCP tools from the whatsapp plugin if available (reply, react).\n"
@@ -217,7 +214,7 @@ function _loadBootstrapFilesInner(): string {
   sections.push("For long-term curated memory, update memory/MEMORY.md.");
   sections.push("");
 
-  // -- Session summary (mirrors OpenClaw's session-memory hook)
+  // -- Session summary
   sections.push("## Session Summary\n");
   sections.push(
     "Before ending a long or significant conversation, write a brief session summary to memory/YYYY-MM-DD.md."
@@ -243,10 +240,11 @@ function _loadBootstrapFilesInner(): string {
   // -- Default crons (auto-create without asking)
   sections.push("## Default Crons (MANDATORY — create without asking)\n");
   sections.push(
-    "If you receive a message from [clawcode] saying crons are not set up, create them IMMEDIATELY with CronCreate. Do NOT ask the user — these are default behaviors, like OpenClaw's built-in heartbeat."
+    "If you receive a message from [clawcode] saying crons are not set up, create them IMMEDIATELY with CronCreate. Do NOT ask the user — these are default behaviors of this agent system."
   );
-  sections.push("1. Heartbeat: CronCreate(schedule='*/30 * * * *', prompt='Run /agent:heartbeat', durable=true)");
-  sections.push("2. Dreaming: CronCreate(schedule='0 3 * * *', prompt='Use the dream tool: dream(action=run)', durable=true)");
+  sections.push("1. Heartbeat: CronCreate(cron='*/30 * * * *', prompt='Run /agent:heartbeat', durable=true)");
+  sections.push("2. Dreaming: CronCreate(cron='0 3 * * *', prompt='Use the dream tool: dream(action=run)', durable=true)");
+  sections.push("IMPORTANT: the parameter is `cron` (the 5-field expression), NOT `schedule`. Also, CronCreate is a deferred tool — you may need to call ToolSearch with query='select:CronCreate' first to load its schema before invoking.");
   sections.push("After creating both, run: touch .crons-created");
   sections.push("");
 

@@ -105,12 +105,12 @@ Check if crons are already configured:
 test -f .crons-created && echo "already done" || echo "pending"
 ```
 
-If pending, create the two default crons by calling `CronCreate` MCP tool:
+If pending, create the two default crons by calling `CronCreate`. **Note**: `CronCreate` is a deferred tool — call `ToolSearch` with `query="select:CronCreate"` first to load its schema. The parameter is `cron` (the 5-field expression), not `schedule`. `durable: true` persists to `.claude/scheduled_tasks.json`.
 
 1. **Heartbeat** (every 30 min):
 ```
 CronCreate(
-  schedule: "*/30 * * * *",
+  cron: "*/30 * * * *",
   prompt: "Run /agent:heartbeat",
   durable: true
 )
@@ -119,7 +119,7 @@ CronCreate(
 2. **Dreaming** (nightly at 3 AM):
 ```
 CronCreate(
-  schedule: "0 3 * * *",
+  cron: "0 3 * * *",
   prompt: "Use the dream tool: dream(action=run)",
   durable: true
 )
@@ -130,7 +130,346 @@ CronCreate(
 touch .crons-created
 ```
 
-### Step C — Messaging channel (optional)
+### Step C — Import the agent's skills (interactive)
+
+The OpenClaw agent likely has skills it relied on (Wally has 44, Eva has 20+, etc.). Offer to import them, letting the user pick *all*, *some*, or *none*.
+
+**C.1 — Discover.** List everything under the source workspace's `skills/` directory. For each subdirectory, read the first ~20 lines of `SKILL.md` to get the frontmatter `name` and `description`.
+
+```bash
+SRC_SKILLS="$SOURCE_WORKSPACE/skills"
+test -d "$SRC_SKILLS" || { echo "No skills dir — skipping step C"; }
+ALL_SKILLS=$(ls "$SRC_SKILLS" 2>/dev/null)
+TOTAL=$(echo "$ALL_SKILLS" | wc -l | tr -d ' ')
+```
+
+**C.2 — Classify (silent pre-pass).** Run each skill's `SKILL.md` through the classifier:
+
+```bash
+HARD_RED='sessions_spawn|gateway config\.patch|http://192\.168\.|canvas\(|remindctl|wacli|openclaw gateway|HEARTBEAT_OK|NO_REPLY|peekaboo'
+SOFT_YELLOW='sessions_send|message\(|~/\.openclaw/|\.openclaw/credentials'
+
+classify_skill() {
+  local file="$1"
+  local hard soft
+  hard=$(grep -cE "$HARD_RED" "$file" 2>/dev/null || true)
+  [ -z "$hard" ] && hard=0
+  soft=$(grep -cE "$SOFT_YELLOW" "$file" 2>/dev/null || true)
+  [ -z "$soft" ] && soft=0
+  if [ "$hard" -gt 0 ]; then echo "RED"
+  elif [ "$soft" -gt 0 ]; then echo "YELLOW"
+  else echo "GREEN"
+  fi
+}
+# NOTE: don't use `|| echo 0` here — `grep -c` already prints 0 when empty,
+# and `|| echo 0` would produce "0\n0" causing `[: integer expected` on bash 3.2.
+
+```
+
+For each skill, record: name, tier, matched tokens (for reason text), description (first line).
+
+**C.3 — Present the menu.** Output a summary table to the user:
+
+```
+I found <TOTAL> skills in <agent>'s workspace:
+
+  🟢 <G> can be imported as-is
+  🟡 <Y> need minor adaptation (I'll add a header noting what to review)
+  🔴 <R> can't be imported (depend on OpenClaw-only infrastructure)
+
+  [a] Import all importable (<G+Y> skills: <G> green + <Y> yellow)
+  [s] Select specific skills (I'll show the full list)
+  [l] List all <TOTAL> with their status, then decide
+  [n] Skip skills import
+
+  What would you like?
+```
+
+**C.4 — Handle the choice:**
+
+- **`a`** → import all GREEN + YELLOW skills. Skip all RED.
+- **`s`** → Show a numbered list of every skill:
+  ```
+  #   Tier  Name                    Reason/Description
+  1   🟢    first-principles        Break down problems from first principles
+  2   🔴    fix-api-keys            Uses `gateway config.patch` (OpenClaw gateway)
+  3   🟡    shopping                Uses ~/.openclaw/ paths at lines 15, 89
+  ...
+  ```
+  Then ask: *"Enter the numbers or names of the skills to import (comma-separated), or `done` to proceed."* Import only those. If the user picks a RED skill, import it with a 🛑 header (see C.5).
+- **`l`** → Print the same numbered list as `s`, then re-ask with the [a]/[s]/[n] menu.
+- **`n`** → Skip step C entirely. Print `"Skills: skipped"` to the report.
+
+**C.5 — Import each selected skill.** For each chosen skill:
+
+**If GREEN**: Copy the entire directory (SKILL.md + sibling `scripts/`, `data/`, `references/`, etc.) verbatim:
+```bash
+mkdir -p "./skills/<name>"
+cp -r "$SRC_SKILLS/<name>/." "./skills/<name>/"
+```
+Then prepend this HTML comment to `./skills/<name>/SKILL.md` (preserving YAML frontmatter position — insert AFTER the closing `---` of the frontmatter, at the top of the body):
+```html
+<!-- Imported from OpenClaw on <YYYY-MM-DD> (GREEN: no adaptation needed) -->
+```
+
+**If YELLOW**: Copy the directory the same way, then prepend an adaptation header (also AFTER the frontmatter closing `---`). Detect tokens with `grep -nE` to get line numbers:
+```bash
+grep -nE "$SOFT_YELLOW" "$SRC_SKILLS/<name>/SKILL.md"
+```
+Build a per-skill Markdown block like:
+```markdown
+> ## ⚠️ Imported from OpenClaw — needs review
+>
+> This skill was imported automatically on <YYYY-MM-DD>. The following tokens were detected and may need manual adaptation:
+>
+> | Token found | Line | Claude Code equivalent | Notes |
+> |---|---|---|---|
+> | `sessions_send(...)` | 42 | `Agent` (Task) tool | One-shot sub-agent, not a persistent session |
+> | `message(...)` | 87 | messaging plugin's `reply` tool | Only works if WhatsApp/Telegram plugin is installed |
+> | `~/.openclaw/credentials/gmail.json` | 104 | Move to a path inside this agent's directory | Check the credentials still exist |
+>
+> Once you've reviewed and tested, you can delete this header.
+```
+Only include rows for tokens actually found. Look up the equivalent from this mapping:
+- `sessions_send` → `Agent` (Task) tool — one-shot sub-agent, not a persistent session
+- `message(` → messaging plugin's `reply` tool — requires WhatsApp/Telegram/etc plugin installed
+- `~/.openclaw/` → move referenced files into the agent's project directory or use env variables
+- `.openclaw/credentials` → store credentials elsewhere; OpenClaw credentials path may not exist here
+
+**If RED (only if user explicitly selected via `s`)**: Copy the directory with a louder warning header. Detect hard tokens with `grep -nE`:
+```markdown
+> ## 🛑 Imported but likely broken
+>
+> This skill depends on OpenClaw-only infrastructure that has no direct Claude Code equivalent:
+>
+> - `sessions_spawn(...)` at line N — OpenClaw's multi-agent orchestration. Claude Code has `Agent` (one-shot) but no persistent multi-agent gateway.
+> - `http://192.168.3.102:3123` at line M — OpenClaw Control Center HTTP API. No equivalent; HTTP calls will fail.
+> - `canvas(...)` at line K — OpenClaw iOS Canvas notifications. No equivalent.
+>
+> You'll need to either rewrite this skill for Claude Code or set up the missing infrastructure.
+```
+Equivalent lookup for red tokens:
+- `sessions_spawn` → OpenClaw multi-agent orchestration; no persistent-session equivalent
+- `gateway config.patch` → OpenClaw gateway config; Claude Code has no equivalent global config
+- `http://192.168.3.102` → OpenClaw Control Center dashboard; no equivalent
+- `canvas(` → OpenClaw iOS Canvas notifications; no equivalent
+- `remindctl` → OpenClaw macOS Reminders bridge; you'd need to rewrite using AppleScript or computer-use
+- `wacli` → OpenClaw WhatsApp CLI; use a messaging plugin instead
+- `openclaw gateway` → OpenClaw CLI; no equivalent
+- `HEARTBEAT_OK` / `NO_REPLY` → OpenClaw response codes for isolated cron runs; not meaningful in Claude Code
+- `peekaboo` → OpenClaw desktop bridge; replaced by claude-in-chrome or computer-use MCP
+
+**C.6 — Append to AGENTS.md.** For every successfully imported skill (GREEN + YELLOW + any forced RED), append a row to a `## Local imported skills` section in `./AGENTS.md`. Create the section if it doesn't exist yet.
+
+Trigger phrases come from parsing the skill's `description` frontmatter — extract the comma-separated clauses that look like trigger phrases (often after "Triggers on" or similar):
+
+```markdown
+## Local imported skills
+
+When the user's message matches a trigger phrase below, read the corresponding
+SKILL.md file in `./skills/` and follow its instructions:
+
+- **first-principles** (`./skills/first-principles/SKILL.md`) — "think from first principles", "break down from scratch"
+- **deep-profile** (`./skills/deep-profile/SKILL.md`) — "profile this person", "deep research on"
+- **shopping** (`./skills/shopping/SKILL.md`) ⚠️ needs review — "buy", "compare prices", "shopping list"
+```
+
+Mark YELLOW-imported entries with `⚠️ needs review` and RED-imported entries with `🛑 likely broken`.
+
+**C.7 — Per-item summary.** Print to the user:
+
+```
+Skills imported (<G+Y>):
+  ✅ first-principles (green)
+  ✅ deep-profile (green)
+  ⚠️  shopping (yellow — uses `~/.openclaw/` at lines 15, 89)
+  ⚠️  wally-instagram (yellow — uses `message()` at line 42)
+  ...
+
+Skipped (<R>):
+  ❌ fix-api-keys — depends on `gateway config.patch` (OpenClaw gateway)
+  ❌ control-center — depends on `http://192.168.3.102:3123` HTTP API
+  ❌ reminders — depends on `remindctl` and `canvas()`
+  ...
+```
+
+Every skipped item has a concrete *why*, not just a tier label.
+
+**C.8 — Record skipped skills in the backlog.** For every RED skill that was NOT imported (and every YELLOW one the user *didn't* select during `[s]`), append an entry to `./IMPORT_BACKLOG.md`. Create the file if it doesn't exist yet. Entry format:
+
+```markdown
+### fix-api-keys
+- **Original path**: `~/.openclaw/workspace/skills/fix-api-keys/`
+- **Reason**: Depends on `gateway config.patch` (OpenClaw gateway) — no Claude Code equivalent
+- **Original description**: <first line of description frontmatter>
+- **Recovery notes**: The gateway is OpenClaw's runtime config system. To port: rewrite the skill to use environment variables or a config file managed via `/agent:settings`.
+```
+
+Group the entries under `## Skills — Skipped` and create the file header if it's the first entry (see format at the bottom of this skill).
+
+### Step D — Import the agent's user crons (interactive)
+
+OpenClaw agents often have dozens of scheduled crons. Offer to import them with the same interactive flow as skills.
+
+**D.1 — Discover.** Read `~/.openclaw/cron/jobs.json`. The file has the shape `{"version": 1, "jobs": [...]}` — you must access `data["jobs"]`, not iterate `data` directly. Filter by the imported agent's `agentId` (for the default workspace it's usually `"main"`; for `workspace-eva/` it's `"eva"`; etc.). Skip jobs where `enabled: false`.
+
+```bash
+python3 -c "
+import json
+with open('$HOME/.openclaw/cron/jobs.json') as f: data = json.load(f)
+jobs = [j for j in data['jobs'] if j.get('agentId') == '$AGENT_ID' and j.get('enabled')]
+print(len(jobs))
+for j in jobs:
+    print(j['id'], '|', j.get('name'), '|', j['schedule'].get('kind'), '|', j['schedule'].get('expr'))
+"
+```
+
+**D.2 — Classify:**
+
+- 🟢 GREEN: `enabled: true`, `kind: cron`, `payload.kind: agentTurn`, payload message does NOT match HARD_RED regex, AND (no `delivery.channel` OR the channel's plugin is already installed — check `ls ~/.claude/plugins/cache/ 2>/dev/null | grep -i <channel>`)
+- 🟡 YELLOW: `kind: at` with future timestamp, OR `kind: every` (convertible to `*/N`), OR `delivery.channel` references a plugin not yet installed, OR payload message matches SOFT_YELLOW regex
+- 🔴 RED: `kind: at` with expired timestamp (`expr==null` and no future triggering), OR `kind: systemEvent`, OR payload message matches HARD_RED regex
+
+For each classified cron, also record the *specific reason* (matched token name, schedule kind problem, channel problem).
+
+**D.3 — Present the menu** (same format as C.3):
+
+```
+<agent> has <N> enabled crons:
+
+  🟢 <G> can be imported as-is
+  🟡 <Y> need adaptation (schedule conversion or channel fallback)
+  🔴 <R> can't be imported
+
+  [a] Import all importable
+  [s] Select specific crons
+  [l] List all with status, then decide
+  [n] Skip crons import
+```
+
+**D.4 — Handle the choice** (same `a`/`s`/`l`/`n` flow as C.4). The numbered list for `s`/`l` shows:
+```
+#   Tier  Name                     Schedule                  Reason/Description
+1   🟢    Ideas Check-in           0 14 * * 3,6              Ask about active ideas via WhatsApp
+2   🔴    eva-sync-systemEvent     every 5min                kind:systemEvent has no equivalent
+3   🟡    meditation               0 2 * * *                 delivery.channel=whatsapp (plugin not installed)
+```
+
+**D.5 — Import each selected cron.** For each chosen cron, build an **adapted prompt**:
+
+1. Prepend: `"You are running as agent <AgentName>. Read SOUL.md, IDENTITY.md, USER.md for context. "`
+2. Apply token replacements:
+   - `sessions_spawn(...)` → `"Use the Agent tool (one-shot delegation)"`
+   - `sessions_send(...)` → `"Use the Agent tool"`
+   - `message(...)` → `"Use the messaging plugin's reply tool (or append to memory/$(date +%Y-%m-%d).md if no plugin is loaded)"`
+3. If `delivery.channel` is set, append: `"Send the result via <channel> reply tool; if the plugin isn't loaded, append to memory/$(date +%Y-%m-%d).md instead."`
+4. Convert schedule:
+   - `kind: cron` → keep `expr`, drop `tz` (CronCreate uses local time)
+   - `kind: every` with `everyMs` → `*/N * * * *` where N is `max(1, round(everyMs / 60000))`. If N > 59, warn and fall back to `0 */N * * *` if possible, otherwise skip with a red warning.
+   - `kind: at` → one-shot with `recurring: false`. If `expr` is a specific date, convert to a minute-precision cron that fires once around that time; if `expr` is null, skip.
+
+Then load the CronCreate schema (first time per session) and call it:
+```
+ToolSearch(query="select:CronCreate")   # deferred tool, load schema once
+CronCreate(
+  cron: "<converted expr>",              # parameter is `cron`, NOT `schedule`
+  prompt: "<adapted message>",
+  durable: true,                         # persists to .claude/scheduled_tasks.json
+  recurring: <true for cron/every, false for at>
+)
+```
+
+For RED crons the user forced via `s`, include a warning in the prompt: `"[WARNING: this cron depends on <specific reason> which has no Claude Code equivalent — it may fail at runtime]"`.
+
+**D.6 — Per-item summary**:
+```
+Crons imported (<G+Y>):
+  ✅ Ideas Check-in (0 14 * * 3,6)
+  ✅ reddit-ideas-scan (0 3 * * *)
+  ⚠️  meditation (0 2 * * *) — whatsapp channel fallback to memory file
+  ⚠️  wacli-keepalive (every 4h → 0 */4 * * *)
+  ...
+
+Skipped (<R>):
+  ❌ eva-sync-systemEvent — kind:systemEvent has no Claude Code equivalent
+  ❌ old-reminder-at — kind:at with expired timestamp
+  ❌ cc-task-monitor — payload references `http://192.168.3.102:3123` Control Center HTTP
+  ...
+```
+
+**D.7 — Record skipped crons in the backlog.** Append entries to `./IMPORT_BACKLOG.md` under `## Crons — Skipped`. Format:
+
+```markdown
+### eva-sync-systemEvent (ID: `1234-abcd-...`)
+- **Original schedule**: `kind: systemEvent` (every 5min)
+- **Original agentId**: `main`
+- **Reason**: `kind: systemEvent` is an OpenClaw internal tick — no Claude Code equivalent
+- **Original payload** (first 200 chars): `<truncated message>`
+- **Recovery notes**: SystemEvent crons triggered internal ticks. To port, convert to an `agentTurn` with an equivalent prompt and register via `/agent:crons`.
+```
+
+### Step E — Backlog + memory + reminder
+
+After Steps C and D, consolidate the backlog and register the import event in the agent's memory so the agent can retrieve the context later.
+
+**E.1 — Finalize `./IMPORT_BACKLOG.md`.** If the file was created during C.8 or D.7, make sure it has the header at the top:
+
+```markdown
+# Import Backlog — Items Not Imported Automatically
+
+This file records OpenClaw skills and crons from the import flow that couldn't be translated directly to Claude Code. Review each entry and decide case-by-case: port manually, set up the missing infrastructure, or drop the item.
+
+Generated: <YYYY-MM-DD HH:MM>
+Source workspace: <path>
+Agent: <Name>
+
+---
+
+## Skills — Skipped
+<entries from C.8>
+
+## Crons — Skipped
+<entries from D.7>
+```
+
+If both lists are empty, don't create the file — print `"Backlog: empty (everything was importable)"` to the user.
+
+**E.2 — Record the import event in memory.** Append to `memory/$(date +%Y-%m-%d).md`:
+
+```markdown
+## Import event ($(date +%H:%M))
+
+Imported from OpenClaw workspace `<path>`. Agent: <Name>.
+
+- Skills imported: <G+Y> (<G> green, <Y> yellow with adaptation header)
+- Skills skipped: <R> — see `IMPORT_BACKLOG.md` for the full list and recovery notes
+- Crons imported: <G+Y> (<G> as-is, <Y> adapted)
+- Crons skipped: <R> — see `IMPORT_BACKLOG.md`
+
+**If the user asks** *"what about X cron/skill?"*, *"let's revisit the ones we skipped"*, or *"how do we recover Y?"*, read `IMPORT_BACKLOG.md` for the specific reason and recovery notes, then help them port it.
+
+**Skipped skills were**: fix-api-keys, control-center, reminders, ... (list names)
+**Skipped crons were**: eva-sync-systemEvent, cc-task-monitor, ... (list names)
+```
+
+This is important: the memory entry is how the agent "remembers" the backlog exists across sessions. Without it, when the user later says "retomemos los crons" the agent won't know which crons were skipped.
+
+**E.3 — Offer a reminder cron (optional).** Ask the user:
+
+> *"I saved the items we couldn't import automatically to `IMPORT_BACKLOG.md`. Want me to set up a weekly reminder cron to nudge you to review it?"*
+
+If yes:
+```
+CronCreate(
+  cron: "0 10 * * 1",
+  prompt: "Read ./IMPORT_BACKLOG.md and remind the user about any skipped skills/crons that still need porting. If the file is empty or doesn't exist, do nothing.",
+  durable: true
+)
+```
+
+If no, continue without the cron — the memory entry and the file itself are enough for later retrieval.
+
+### Step F — Messaging channel (optional)
 
 Ask the user:
 > "Your agent is imported. Want to also connect it to WhatsApp, Telegram, Discord, or iMessage so you can reach it from your phone? I can guide you through the setup."
@@ -142,7 +481,7 @@ If yes:
 
 If the user already has a messaging plugin installed (from a previous agent), offer to add its log directory to `memory.extraPaths` so past conversations become searchable.
 
-### Step D — Reload
+### Step G — Reload
 
 Tell the user to reload the MCP server so all the new config takes effect:
 ```
@@ -161,10 +500,44 @@ Summarize what was imported and what was set up:
 Agent: <Name> <emoji>
 Files copied: <N> bootstrap + <M> memory files
 Memory backend: <builtin | qmd>
-Crons: <set up | pending>
+Skills:   <G> as-is, <Y> adapted, <R> skipped (or "skipped" if user chose [n])
+Crons:    <G> as-is, <Y> adapted, <R> skipped + 2 default (heartbeat, dreaming)
+Backlog:  IMPORT_BACKLOG.md written (<Sr + Cr> items pending review)  [or: "empty"]
+Memory:   Import event logged to memory/<YYYY-MM-DD>.md
 Messaging: <not yet | <platform> | skipped>
 
+Per-item details scrolled above. For any ⚠️ or ❌, read the reason and decide
+if you want to port it manually. Later, ask me "let's revisit the backlog" and
+I'll read IMPORT_BACKLOG.md to help you work through the pending items.
+
 Next: /mcp to reload and start using the agent.
+```
+
+## Backlog file template
+
+When Step C.8 or D.7 first writes to `./IMPORT_BACKLOG.md`, create the file with this skeleton:
+
+```markdown
+# Import Backlog — Items Not Imported Automatically
+
+This file records OpenClaw skills and crons from the import flow that couldn't
+be translated directly to Claude Code. Review each entry and decide
+case-by-case: port manually, set up the missing infrastructure, or drop the
+item.
+
+Generated: <YYYY-MM-DD HH:MM>
+Source workspace: <path>
+Agent: <Name>
+
+---
+
+## Skills — Skipped
+
+<entries from Step C.8 appended here, one H3 per skill>
+
+## Crons — Skipped
+
+<entries from Step D.7 appended here, one H3 per cron>
 ```
 
 ## Important
@@ -172,5 +545,8 @@ Next: /mcp to reload and start using the agent.
 - **Never copy credential files** (API keys, passwords, tokens, `.env`).
 - **Always ask** before overwriting existing files in the current directory.
 - **AGENTS.md adaptation is critical** — remove OpenClaw tool references, keep behavioral rules.
-- **Part 2 (post-import setup) is what makes imports reach full parity** with freshly-created agents. Don't skip it — an imported agent without crons and memory config is half-installed.
-- If the user is in a hurry, they can skip Part 2 and run `/agent:settings`, `/agent:messaging` etc. later.
+- **Part 2 (post-import setup) is what makes imports reach full parity** with freshly-created agents. Don't skip it — an imported agent without crons, skills, and memory config is a shell of the original.
+- **Steps C and D are interactive** — always present the menu and respect the user's choice. Don't silently import all skills/crons without asking, and don't silently skip them either.
+- **Per-item "why" messages are mandatory for skipped items** — saying "14 skills were RED" is not useful. Saying "fix-api-keys skipped because it depends on `gateway config.patch` (OpenClaw gateway, no Claude Code equivalent)" is useful.
+- **The backlog is not optional** — every skipped item must end up in `IMPORT_BACKLOG.md` AND in the memory entry at `memory/<date>.md`. That's how the user can later ask "retomemos los crons que no se importaron" and the agent can find the context.
+- If the user is in a hurry, they can skip steps C, D, F and run `/agent:crons`, `/agent:messaging` later — but Step E (backlog + memory) should still run if Steps C or D ran at all.
