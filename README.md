@@ -36,12 +36,13 @@ ClawCode turns Claude Code into a stateful autonomous agent. It gives Claude a p
 - **[Language adaptation](#how-it-works)** — detects the user's language and responds in kind. Switch mid-conversation and the agent switches too. Commands, status cards, and errors all adapt.
 - **[Voice](#voice)** — TTS via sag, ElevenLabs, OpenAI, macOS `say`. STT via local Whisper or OpenAI API.
 - **[WebChat](#webchat)** — browser chat UI with SSE real-time delivery. Conversation logs in JSONL + Markdown (same format as WhatsApp).
-- **[Messaging channels](#messaging-channels)** — WhatsApp, Telegram, Discord, iMessage, Slack. Slash commands (`/status`, `/help`, `/whoami`) work from any channel.
+- **[Messaging channels](#messaging-channels)** — WhatsApp, Telegram, Discord, iMessage, Slack via MCP plugins. No conflicts.
+- **[Slash commands everywhere](#messaging-channels)** — `/status`, `/help`, `/whoami`, `/new`, `/compact` work from CLI, WhatsApp, Telegram, Discord — same commands, formatting adapts per platform.
 - **[Smart import](#importing-agents)** — 3-tier classifier (GREEN/YELLOW/RED) for skills and crons. Step-by-step wizard with clickable options. Skipped items go to a backlog with recovery notes.
 - **[Community skills](#community-skills)** — install from GitHub with `owner/repo@branch#subdir`. OS + dependency validation.
 - **[Always-on](#always-on-service)** — launchd / systemd service. Enables dreaming + heartbeat 24/7.
 - **[Doctor](#diagnostics)** — 9 health checks (config, identity, memory, SQLite, QMD, bootstrap, HTTP, messaging, dreaming). `--fix` auto-repairs safe issues.
-- **[Terse by design](#how-it-works)** — "Guardado. 🍣" not "I will now proceed to save your message to the daily memory log..."
+- **[Terse by design](#how-it-works)** — the agent acts, doesn't narrate. Confirmations in 1-2 lines, no preambles, no recaps.
 
 ## [Prerequisites](#prerequisites)
 
