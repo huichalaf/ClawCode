@@ -7,7 +7,7 @@
 
 ### Fixed (GitHub issue #1)
 - **Reminders now persist across session closes.** Previously the SessionStart hook relied on a `.crons-created` marker that persisted on disk while the crons themselves died with the session, so heartbeat / dreaming / imported / ad-hoc crons silently disappeared after every restart. The new system keeps a registry at `memory/crons.json` and reconciles it against the live harness on every SessionStart — anything missing is recreated, anything live-but-unknown is adopted.
-- **Ad-hoc reminders ("recordame en 4 horas X") survive restarts.** A PostToolUse hook captures every `CronCreate` call and writes it to the registry; next session, reconcile recreates it.
+- **Ad-hoc reminders ("remind me in 4 hours to X") survive restarts.** A PostToolUse hook captures every `CronCreate` call and writes it to the registry; next session, reconcile recreates it.
 - **User deletions stay deleted.** `CronDelete` tombstones the registry entry; reconcile skips it.
 
 ### Added

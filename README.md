@@ -220,7 +220,7 @@ Full details: [`docs/doctor.md`](docs/doctor.md)
 
 ### [Cron persistence](#cron-persistence)
 
-Reminders (heartbeat, dreaming, imports, and ad-hoc "recordame en 2h") survive session closes. ClawCode maintains a registry at `memory/crons.json` and reconciles it against the live harness on every SessionStart: anything missing gets recreated, anything live-but-unknown gets adopted. PostToolUse captures ad-hoc `CronCreate`/`CronDelete` automatically — you don't need a special command for "recordame".
+Reminders (heartbeat, dreaming, imports, and ad-hoc "remind me in 2h") survive session closes. ClawCode maintains a registry at `memory/crons.json` and reconciles it against the live harness on every SessionStart: anything missing gets recreated, anything live-but-unknown gets adopted. PostToolUse captures ad-hoc `CronCreate`/`CronDelete` automatically — you don't need a special command for "remind me".
 
 Manage reminders through `/agent:crons` (aliases `/agent:reminders`, `list reminders`, `recordatorios`):
 

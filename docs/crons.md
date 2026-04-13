@@ -8,7 +8,7 @@ Claude Code's `CronCreate` tool creates in-memory scheduled tasks that **die whe
 
 > Jobs live only in this Claude session — nothing is written to disk, and the job is gone when Claude exits.
 
-The `durable: true` parameter promises `.claude/scheduled_tasks.json` persistence, but in practice it's a no-op — only a stale `.lock` file is left behind. This meant that heartbeat, dreaming, imported OpenClaw reminders, and ad-hoc "recordame en 2h" crons all silently disappeared between sessions.
+The `durable: true` parameter promises `.claude/scheduled_tasks.json` persistence, but in practice it's a no-op — only a stale `.lock` file is left behind. This meant that heartbeat, dreaming, imported OpenClaw reminders, and ad-hoc "remind me in 2h" crons all silently disappeared between sessions.
 
 The registry + reconcile pattern solves this: every cron the user creates is tracked in `memory/crons.json`; at the start of every session, a hook calls `CronList` against the harness, sees what's missing, and recreates it.
 
@@ -97,7 +97,7 @@ All via `/agent:crons` (aliases: `/agent:reminders`, `list reminders`, `show cro
 ### Ad-hoc capture flow
 
 ```
-User: "recordame en 4 horas ejercicio"
+User: "remind me in 4 hours to exercise"
   → Agent calls CronCreate(cron="...", prompt="...", durable=true)
   → PostToolUse hook fires → cron-posttool.sh
     - If memory/.reconciling is fresh (<10 min): skip (we're reconciling)
