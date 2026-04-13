@@ -71,6 +71,12 @@ Then install the plugin:
 
 When prompted for scope, select **"Install for you, in this repo only (local scope)"** — this keeps the agent isolated to this folder.
 
+Then reload plugins so the skills become available:
+
+```
+/reload-plugins
+```
+
 **3. Create your agent:**
 
 ```
