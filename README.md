@@ -1,7 +1,5 @@
 <h1 align="center">ClawCode</h1>
 
-<hr>
-
 <p align="center">
   <img src="assets/clawcode.png" alt="ClawCode mascot" width="120">
 </p>
