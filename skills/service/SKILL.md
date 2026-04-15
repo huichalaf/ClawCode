@@ -42,6 +42,14 @@ Parse the action and call `service_plan` with it.
 4. **Show the user the warning** (see Safety section). Ask explicitly: *"This will install a background service that runs with --dangerously-skip-permissions. Confirm? [y/N]"*
 5. If the user says no, stop with a neutral acknowledgement.
 6. If the user confirms:
+   - **Pre-check `~/.claude/settings.json`** (prevents the most common install hang — see `docs/service.md` "Heads-up" note):
+     - Read the file with `Read(~/.claude/settings.json)`. If it doesn't exist or is empty, treat as `{}`.
+     - If `skipDangerousModePermissionPrompt` is already `true`, skip to the next sub-step.
+     - Otherwise, tell the user: *"Heads-up: your `~/.claude/settings.json` is missing `\"skipDangerousModePermissionPrompt\": true`. Without it, the service will show a 'Bypass Permissions — Do you accept?' dialog at startup that no daemon (launchd / systemd) can answer, and the install will appear to succeed but the service will hang silently. Add it now? [y/N]"*
+     - If yes: merge with `jq` via Bash (preserves any other keys, atomic write):
+       `Bash: jq '. + {"skipDangerousModePermissionPrompt": true}' ~/.claude/settings.json > ~/.claude/settings.json.tmp && mv ~/.claude/settings.json.tmp ~/.claude/settings.json`
+       (If the file did not exist, first run `Bash: echo '{}' > ~/.claude/settings.json` so `jq` has something to merge into.) Confirm with one line: *"Added skipDangerousModePermissionPrompt: true to ~/.claude/settings.json."*
+     - If no: warn explicitly *"Without it the service will hang at startup. Continue anyway? [y/N]"*. On a second `no`, abort with a neutral acknowledgement and do not write any service files. On `yes`, proceed and let the user deal with it.
    - Write the plist / unit file: `Write(filePath, fileContent)` — the plan tells you the path
    - Run each command from `plan.commands` in order with `Bash`, printing the label before each
    - If any command fails, stop and report the error (do NOT try to roll back — the user can run `uninstall` to clean up)

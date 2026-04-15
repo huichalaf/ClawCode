@@ -143,6 +143,7 @@ if (httpConfig.enabled) {
         return {};
       }
     },
+    getWatchdogInfo: () => buildWatchdogPing(),
   });
 }
 
@@ -492,7 +493,57 @@ const MCP_TOOL_DIRECTORY: Array<{ name: string; description: string }> = [
   { name: "skill_remove", description: "Remove an installed skill (requires confirm)." },
   { name: "chat_inbox_read", description: "Read pending WebChat messages." },
   { name: "webchat_reply", description: "Stream a reply to the open WebChat browser." },
+  { name: "watchdog_ping", description: "Cheap liveness probe for external watchdogs — returns version + installed channel plugin names. No LLM, no side effects." },
 ];
+
+/**
+ * Liveness probe response used by the `watchdog_ping` MCP tool and the
+ * `/watchdog/mcp-ping` HTTP endpoint. Shape deliberately stable — external
+ * watchers depend on it.
+ */
+export interface WatchdogPingResponse {
+  ok: true;
+  version: string;
+  ts: number;
+  plugins: string[];
+}
+
+let cachedPluginVersion: string | null = null;
+function readPluginVersion(): string {
+  if (cachedPluginVersion !== null) return cachedPluginVersion;
+  try {
+    const raw = fs.readFileSync(
+      path.join(PLUGIN_ROOT, ".claude-plugin", "plugin.json"),
+      "utf-8"
+    );
+    cachedPluginVersion = String(JSON.parse(raw).version || "unknown");
+  } catch {
+    cachedPluginVersion = "unknown";
+  }
+  return cachedPluginVersion;
+}
+
+/**
+ * Build the watchdog ping response. Called by both the MCP tool handler and
+ * the HTTP bridge's `/watchdog/mcp-ping` route. Cheap — reads plugin.json
+ * once (cached) and walks the channel plugin cache dir via detectChannels.
+ */
+function buildWatchdogPing(): WatchdogPingResponse {
+  let plugins: string[] = [];
+  try {
+    plugins = detectChannels()
+      .filter((c) => c.installed === true)
+      .map((c) => c.name);
+  } catch {
+    // Never fail the probe because of a detection error
+  }
+  return {
+    ok: true,
+    version: readPluginVersion(),
+    ts: Date.now(),
+    plugins,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // MCP Server
@@ -880,6 +931,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ["message"],
       },
     },
+    {
+      name: "watchdog_ping",
+      description:
+        "Cheap liveness probe for external watchdogs. Returns {ok, version, ts, plugins} where plugins is the list of installed channel plugin names (telegram, whatsapp, etc.). No LLM, no side effects, no network I/O. Used by the /watchdog/mcp-ping HTTP endpoint and available directly here for diagnostics.",
+      inputSchema: {
+        type: "object" as const,
+        properties: {},
+      },
+    },
   ],
 }));
 
@@ -1220,6 +1280,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         isError: true,
       };
     }
+  }
+
+  if (name === "watchdog_ping") {
+    const payload = buildWatchdogPing();
+    return {
+      content: [{ type: "text", text: JSON.stringify(payload) }],
+    };
   }
 
   if (name === "channels_detect") {

@@ -10,10 +10,10 @@ ClawCode's core differentiator. The agent remembers what was said, read, and dec
 | `memory/YYYY-MM-DD.md` | Daily logs — append-only, written during sessions. One file per day. |
 | `memory/.dreams/short-term-recall.json` | Every `memory_search` hit gets recorded here with score, concept tags, and recall count. Dreaming reads this to decide what to promote. |
 | `memory/.dreams/phase-signals.json` | Reinforcement signals accumulated between dream runs. |
-| `memory/.memory.sqlite` | Auto-generated FTS5 index. Safe to delete — rebuilds on next `memory_search`. |
+| `memory/.memory.sqlite` | Auto-generated FTS5 index. Safe to delete — rebuilds on next MCP startup or after the next `.md` change in `memory/`. |
 | `DREAMS.md` | Dream diary (at workspace root, not inside `memory/`). Written after each dream run. |
 
-`MEMORY.md` and dated files are human-readable markdown. You can `grep`, read, and edit them freely — the index re-syncs on the next search.
+`MEMORY.md` and dated files are human-readable markdown. You can `grep`, read, and edit them freely — the index re-syncs automatically when `memory/` files change (via `fs.watch`). The first search after MCP startup also syncs to cover anything added while the server was down. `extraPaths` are also watched (recursively on macOS and Windows, top-level only on Linux due to a Node `fs.watch` platform limitation — see [§ extraPaths](#extrapaths--indexing-beyond-memory)).
 
 ## Write it, don't memorize it
 
@@ -169,7 +169,9 @@ By default only `memory/*.md` and `MEMORY.md` are indexed. You can add other dir
 - Only `.md` files are indexed; `.jsonl`, `.json`, binaries are skipped
 - Path traversal (`..`) is blocked to prevent reading outside configured paths
 
-`extraPaths` is a **critical key** — changes require `/mcp` (the DB is built at startup with these paths). See [config-reload.md](config-reload.md).
+**Live updates and the Linux caveat.** Each path in `extraPaths` is watched with `fs.watch({ recursive: true })`. On **macOS** and **Windows** the watcher fires for any `.md` change at any depth — new WhatsApp / Telegram conversation logs, edits to a note in a subfolder, etc. — and the index re-syncs on the next `memory_search`. On **Linux**, Node's `fs.watch` ignores the `recursive` flag (a longstanding libuv limitation), so the watcher only sees changes at the top level of each `extraPath`. For deep subdirectories on Linux, run `/agent:doctor --fix` after adding files, or restart the MCP server.
+
+`extraPaths` is a **critical key** — adding or removing entries from the list requires `/mcp` (the watchers are set up at startup against the current list). Changes to files *inside* an existing path are picked up live as described above. See [config-reload.md](config-reload.md).
 
 ## Security: path traversal
 
@@ -228,7 +230,7 @@ By default only `memory/*.md` and `MEMORY.md` are indexed. You can add other dir
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Search returns nothing for obvious content | Index hasn't synced | Run `memory_search` once to trigger sync; or delete `memory/.memory.sqlite` to force rebuild |
+| Search returns nothing for obvious content | Index hasn't synced (rare — `fs.watch` should auto-mark dirty on file changes) | Confirm the file is at the top level of `memory/` (subdirectories under `memory/` are not watched). For `extraPaths` on **Linux**, deep subdirectories are not watched (`fs.watch` recursive limitation) — run `/agent:doctor --fix` after adding files there. For NFS / sshfs / unusual filesystems where `fs.watch` does not propagate events, same fix. As a last resort, delete `memory/.memory.sqlite` and restart the MCP to rebuild. |
 | "Database unavailable" stub used | `better-sqlite3` native module didn't compile | Run `npm install` in the plugin dir; may need Xcode Command Line Tools on macOS |
 | Old daily files outrank recent ones | Decay disabled or half-life too high | Set `builtin.halfLifeDays` to 30 or less |
 | Query in one language misses memory in the other | Synonym pair not in the map | Add it to `BILINGUAL_SYNONYMS` in `lib/keywords.ts` |

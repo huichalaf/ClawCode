@@ -1,7 +1,7 @@
 {
   "name": "agent",
   "description": "crisandrews — OpenClaw-compatible agent system with personality, memory, dreaming, and heartbeats.",
-  "version": "1.2.2",
+  "version": "1.3.0",
   "author": {
     "name": "crisandrews"
   },

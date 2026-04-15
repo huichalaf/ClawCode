@@ -49,6 +49,7 @@ Issues NOT auto-fixed (require human decision):
 - Missing identity files — run `/agent:create` or `/agent:import`
 - QMD binary missing — install it per `/agent:settings`
 - HTTP bridge not reachable — run `/mcp` to restart MCP server
+- "Unknown skill" errors after a runtime user change (e.g. ran `claude` as `root`, then switched the service to a non-root user) — `~/.claude/plugins/installed_plugins.json` is a Claude Code internal file and still references the previous user's home (`/root/.claude/...`). ClawCode does not write or own this file, so the doctor cannot safely auto-rewrite it. Two manual fixes: (a) reinstall plugins under the new user, or (b) `jq`-rewrite the paths in place: `jq --arg new "$HOME/.claude" --arg old "/root/.claude" 'walk(if type=="string" then sub($old; $new) else . end)' ~/.claude/plugins/installed_plugins.json > tmp && mv tmp ~/.claude/plugins/installed_plugins.json`. Reported by [@JD2005L](https://github.com/JD2005L) in [#4](https://github.com/crisandrews/ClawCode/issues/4).
 
 The diagnostic report includes a `hint` field for every non-OK check that tells the user (or agent) what to do.
 

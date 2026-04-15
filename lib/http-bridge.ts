@@ -24,6 +24,7 @@
 import http from "http";
 import fs from "fs";
 import path from "path";
+import { randomBytes } from "crypto";
 
 /** Format a Date as YYYY-MM-DD. */
 function datestamp(d: Date = new Date()): string {
@@ -43,6 +44,20 @@ export interface HttpBridgeConfig {
   token: string;
 }
 
+/**
+ * Pure helper: does the given remoteAddress look like a loopback peer?
+ * Covers IPv4, IPv6, and IPv4-mapped-IPv6 forms. Exported so it can be
+ * unit-tested without spinning up an HTTP server.
+ */
+export function isLoopbackAddress(addr: string | undefined): boolean {
+  if (!addr) return false;
+  return (
+    addr === "127.0.0.1" ||
+    addr === "::1" ||
+    addr === "::ffff:127.0.0.1"
+  );
+}
+
 export const HTTP_DEFAULTS: HttpBridgeConfig = {
   enabled: false,
   port: 18790,
@@ -54,6 +69,12 @@ interface StatusProvider {
   getIdentity: () => string;
   getMemoryStats: () => { files: number; chunks: number; totalSize: number };
   getConfig: () => Record<string, any>;
+  /**
+   * Optional. When present, `/watchdog/mcp-ping` returns its payload (JSON).
+   * Server.ts wires this to its buildWatchdogPing() helper; the HTTP bridge
+   * simply serializes. Absent = endpoint returns 503.
+   */
+  getWatchdogInfo?: () => unknown;
 }
 
 interface WebhookEntry {
@@ -93,6 +114,10 @@ export class HttpBridge {
   private sseClients: SseClient[] = [];
   private onChatMessage: ChatMessageHandler | null = null;
   private convLogDirCreated = false;
+
+  // Watchdog rate limit: one llm-ping per hour per token.
+  // Map of token → array of call timestamps (ms). Pruned on each check.
+  private llmPingCallTimes: Map<string, number[]> = new Map();
 
   constructor(
     config: HttpBridgeConfig,
@@ -248,6 +273,49 @@ export class HttpBridge {
       return;
     }
 
+    // --- Watchdog endpoints ---
+    // Loopback-only regardless of bind config. Belt-and-suspenders:
+    // even if the user misconfigures `http.host: "0.0.0.0"` or tunnels the
+    // port, watchdog endpoints reject anything that's not local.
+    if (pathname.startsWith("/watchdog/")) {
+      if (!this.isLoopbackRequest(req)) {
+        this.sendJson(res, 403, { error: "loopback-only" });
+        return;
+      }
+      // Token auth inherits the bridge's config: empty token = localhost trust
+      // (same as /health today); set token = Bearer required.
+      if (this.config.token && !this.checkAuth(req, url)) {
+        this.sendJson(res, 401, { error: "Unauthorized — set Bearer token" });
+        return;
+      }
+      if (method === "GET" && pathname === "/watchdog/mcp-ping") {
+        if (!this.status.getWatchdogInfo) {
+          this.sendJson(res, 503, {
+            error: "watchdog probe not wired — server.ts did not provide getWatchdogInfo",
+          });
+          return;
+        }
+        try {
+          this.sendJson(res, 200, this.status.getWatchdogInfo());
+        } catch (err) {
+          this.sendJson(res, 500, {
+            error: "watchdog probe failed",
+            message: String((err as Error).message || err),
+          });
+        }
+        return;
+      }
+      if (method === "POST" && pathname === "/watchdog/llm-ping") {
+        this.handleLlmPing(req, res);
+        return;
+      }
+      this.sendJson(res, 404, {
+        error: "Not found",
+        watchdogEndpoints: ["GET /watchdog/mcp-ping", "POST /watchdog/llm-ping"],
+      });
+      return;
+    }
+
     // WebChat UI — auth-gated when token is set (prevents open access on 0.0.0.0)
     if (method === "GET" && (pathname === "/" || pathname === "/chat" || pathname === "/chat.html")) {
       if (this.config.token && !this.checkAuth(req, url)) {
@@ -294,6 +362,7 @@ export class HttpBridge {
           "POST /v1/chat/send",
           "GET  /v1/chat/history",
           "GET  /v1/chat/stream (SSE)",
+          "GET  /watchdog/mcp-ping (loopback-only)",
         ],
       });
     }
@@ -643,6 +712,131 @@ export class HttpBridge {
     if (this.chatHistory.length > 500) {
       this.chatHistory = this.chatHistory.slice(-500);
     }
+  }
+
+  /**
+   * True iff the request arrived over the loopback interface. Used by
+   * `/watchdog/*` to refuse non-local probes even when the bridge is
+   * (mis)configured to bind a public interface. Delegates to the pure
+   * `isLoopbackAddress` helper so the classification rule can be
+   * unit-tested in isolation.
+   */
+  private isLoopbackRequest(req: http.IncomingMessage): boolean {
+    return isLoopbackAddress(req.socket.remoteAddress);
+  }
+
+  /**
+   * POST /watchdog/llm-ping — injects a canned prompt as a user chat
+   * message and polls chatHistory for an agent response matching
+   * `PONG-<nonce>`. Returns 200 on match, 504 on timeout. Rate-limited
+   * at 1/hour per token to prevent token drain. Requires http.token to
+   * be set (defense in depth beyond loopback-only).
+   *
+   * For this endpoint to work with a real agent, the agent's CLAUDE.md
+   * should include an instruction to recognize `__watchdog_ping__`
+   * messages and reply via `webchat_reply("PONG-<nonce>")`. Tests
+   * bypass the agent by calling `sendChatReply` directly.
+   */
+  private handleLlmPing(
+    req: http.IncomingMessage,
+    res: http.ServerResponse
+  ) {
+    // Defense in depth: llm-ping requires an http.token even though the
+    // route is already loopback-only. A rogue local process could still
+    // drain LLM tokens without this.
+    if (!this.config.token) {
+      this.sendJson(res, 403, {
+        error: "llm-ping requires http.token to be set",
+      });
+      return;
+    }
+
+    // Rate limit: 1 call per hour per token.
+    const now = Date.now();
+    const windowMs = 60 * 60 * 1000;
+    const prior = (this.llmPingCallTimes.get(this.config.token) || []).filter(
+      (t) => t >= now - windowMs
+    );
+    if (prior.length >= 1) {
+      const retryAfterMs = prior[0] + windowMs - now;
+      const retryAfterS = Math.max(1, Math.ceil(retryAfterMs / 1000));
+      res.setHeader("Retry-After", String(retryAfterS));
+      this.sendJson(res, 429, {
+        error: "rate-limited",
+        retry_after_s: retryAfterS,
+      });
+      return;
+    }
+    prior.push(now);
+    this.llmPingCallTimes.set(this.config.token, prior);
+
+    // Collect optional body with timeout_ms override (clamp to [1s, 60s])
+    const chunks: Buffer[] = [];
+    req.on("data", (c: Buffer) => chunks.push(c));
+    req.on("end", async () => {
+      let timeoutMs = 30_000;
+      try {
+        const body = Buffer.concat(chunks).toString("utf-8");
+        if (body.trim().length > 0) {
+          const parsed = JSON.parse(body);
+          if (typeof parsed.timeout_ms === "number") {
+            timeoutMs = Math.max(1000, Math.min(60_000, parsed.timeout_ms));
+          }
+        }
+      } catch {
+        // Ignore invalid bodies; keep default
+      }
+
+      const nonce = randomBytes(4).toString("hex");
+      const expected = `PONG-${nonce}`;
+      const startTime = Date.now();
+      const pingMsg: ChatMessage = {
+        id: `wdping-${nonce}`,
+        ts: new Date().toISOString(),
+        role: "user",
+        content: `__watchdog_ping__ Respond immediately with just \`${expected}\` (no other text).`,
+      };
+
+      // Inject like a webchat message to trigger agent processing
+      this.chatInbox.push(pingMsg);
+      this.chatHistory.push(pingMsg);
+      this.capHistory();
+      if (this.onChatMessage) {
+        try {
+          await this.onChatMessage(pingMsg);
+        } catch {}
+      }
+
+      // Poll chatHistory for a matching agent response that arrived after
+      // our ping was injected.
+      const deadline = startTime + timeoutMs;
+      while (Date.now() < deadline) {
+        const match = this.chatHistory.find(
+          (m) =>
+            m.role === "agent" &&
+            m.content.includes(expected) &&
+            new Date(m.ts).getTime() >= startTime
+        );
+        if (match) {
+          this.sendJson(res, 200, {
+            ok: true,
+            nonce,
+            latency_ms: Date.now() - startTime,
+            response: match.content.slice(0, 200),
+          });
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 250));
+      }
+
+      this.sendJson(res, 504, {
+        ok: false,
+        nonce,
+        error: "timeout",
+        timeout_ms: timeoutMs,
+        elapsed_ms: Date.now() - startTime,
+      });
+    });
   }
 
   private checkAuth(req: http.IncomingMessage, url?: URL): boolean {

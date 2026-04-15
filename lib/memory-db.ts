@@ -58,6 +58,51 @@ export class MemoryDB {
       this.db.pragma("journal_mode = WAL");
       this.initSchema();
     }
+
+    this.startWatcher();
+  }
+
+  /**
+   * Watch memoryDir + extraPaths for .md changes; mark the index dirty so
+   * the next search re-syncs. Without this, files added mid-session (e.g.
+   * imported daily logs, new WhatsApp / Telegram conversation logs under
+   * extraPaths) stay invisible to memory_search until restart or
+   * /agent:doctor --fix. Platform note: fs.watch's `recursive: true` is
+   * supported on macOS and Windows but ignored on Linux — so on Linux,
+   * deep subdirectories under extraPaths get only top-level coverage.
+   * Best-effort: each watcher is wrapped in try/catch (NFS, watcher
+   * limits, missing path); if it fails the existing dirty=true on
+   * construction + manual /agent:doctor --fix still cover the user.
+   */
+  private startWatcher(): void {
+    const onChange = (_event: string, filename: string | Buffer | null) => {
+      const name = typeof filename === "string" ? filename : filename?.toString();
+      if (name && name.endsWith(".md") && !name.startsWith(".")) {
+        this.markDirty();
+      }
+    };
+
+    // memoryDir is flat by convention — top-level watch is enough
+    try {
+      fs.watch(this.memoryDir, { persistent: false }, onChange);
+    } catch {
+      // Watcher unavailable — fall through to existing behavior
+    }
+
+    // extraPaths are walked recursively in listMemoryFiles, so we ask for
+    // recursive watching too (effective on Mac/Windows; degrades to
+    // top-level on Linux)
+    for (const extraPath of this.extraPaths) {
+      try {
+        fs.watch(
+          extraPath,
+          { persistent: false, recursive: true },
+          onChange
+        );
+      } catch {
+        // Path missing or watcher unavailable — skip silently
+      }
+    }
   }
 
   private initSchema(): void {

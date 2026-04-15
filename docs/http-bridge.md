@@ -52,6 +52,8 @@ Then `/mcp` to reload. Confirm with `/agent:doctor` — the `HTTP bridge` check 
 | POST | `/v1/chat/send` | Token | Send a chat message (WebChat) |
 | GET | `/v1/chat/history` | Token | Chat history (optionally `?since=<id>`) |
 | GET | `/v1/chat/stream` | Token | SSE stream of chat events (supports `?token=` query) |
+| GET | `/watchdog/mcp-ping` | Token (+ loopback-only) | Liveness probe for external watchdogs — returns `{ok, version, ts, plugins}`. Route refuses non-loopback requests even if `http.host` is changed. See [watchdog.md](watchdog.md). |
+| POST | `/watchdog/llm-ping` | Token **required** (+ loopback-only) | End-to-end LLM probe. Injects a `__watchdog_ping__` message into the WebChat inbox with a random nonce and polls for an agent reply containing `PONG-<nonce>`. Returns 200 + latency on match, 504 on timeout. Rate-limited 1/hour per token. Body: optional `{timeout_ms}` (1000-60000). See [watchdog.md](watchdog.md). |
 
 All endpoints set permissive CORS. Auth is via `Authorization: Bearer <token>` header, or `?token=...` query string as a fallback for SSE clients that can't set headers.
 

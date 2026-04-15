@@ -26,6 +26,7 @@ Master index of every capability. The agent reads this first when it needs to re
 | Webhooks | [webhooks.md](webhooks.md) | `http.enabled` | `false` | External systems POST events to the agent (CI/CD, Cloudflare, IoT) |
 | WebChat | [webchat.md](webchat.md) | `http.enabled` | `false` | Browser chat UI served by the HTTP bridge |
 | Always-on service | [service.md](service.md) | — (installed via skill) | not installed | Run agent as launchd / systemd service 24/7 |
+| Watchdog | [watchdog.md](watchdog.md) | — (installed via recipe) | not installed | External probe every 5 min + restart on failure; opt-in via `recipes/watchdog/` |
 | Voice (TTS + STT) | [voice.md](voice.md) | `voice.enabled` | `false` | Speak text, transcribe audio — backends: sag, elevenlabs, openai-tts, say, whisper |
 | QMD backend | [qmd.md](qmd.md) | `memory.backend: "qmd"` | builtin | External semantic search via qmd |
 

@@ -37,6 +37,16 @@ A daemon cannot answer interactive "Approve this tool?" prompts, so the service 
 - You lose the per-tool approval safety net that the REPL gives you.
 - If the agent or any skill it runs has a bug or is manipulated by an incoming message, it could do anything inside the workspace without your consent in the moment.
 
+**Heads-up — only relevant when running as a service.** Bypass Permissions mode shows an interactive `WARNING: Bypass Permissions mode — Do you accept? [1. No / 2. Yes]` dialog at startup. In a terminal you just press `2` and continue; under launchd / systemd there is no TTY to answer it, so the service hangs silently and never reaches the listening state.
+
+Before installing the service, persist the acknowledgment once in `~/.claude/settings.json`:
+
+```json
+{ "skipDangerousModePermissionPrompt": true }
+```
+
+Not needed if you only run `claude` interactively. Tracked upstream as [anthropics/claude-code#25503](https://github.com/anthropics/claude-code/issues/25503). Reported by [@JD2005L](https://github.com/JD2005L) — thanks.
+
 **Consequences worth knowing:**
 
 - Keep sensitive files out of the agent's workspace, or at least out of paths the agent has reason to touch.
@@ -87,6 +97,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/home/you/my-agent
+ExecStartPre=-/usr/bin/pkill -f "claude.*--dangerously-skip-permissions"
 ExecStart=/usr/local/bin/claude --dangerously-skip-permissions
 Restart=always
 RestartSec=10
@@ -96,6 +107,8 @@ StandardError=append:/tmp/clawcode-my-agent.log
 [Install]
 WantedBy=default.target
 ```
+
+The `ExecStartPre=-/usr/bin/pkill ...` line kills any leftover `claude` process running in service mode before the new one starts. Without it, a restart can leave the old instance briefly alive next to the new one — both then connect to the same channel (e.g. Telegram bot) and race for incoming messages, making the service look randomly broken. The leading `-` tells systemd to ignore the exit code (no leftover process is fine). The `-f` filter only matches Claude Code launched with `--dangerously-skip-permissions`, so an interactive `claude` session running in another terminal is left alone. macOS launchd does not need this line — launchd guarantees a single instance per `Label`. Reported by [@JD2005L](https://github.com/JD2005L).
 
 Both auto-restart on crash. On Linux, `systemctl --user enable` is enough for reboot survival within a session; for true reboot survival across user logouts you also need `loginctl enable-linger <user>` (not done automatically).
 
@@ -127,11 +140,19 @@ Default log path: `/tmp/clawcode-<slug>.log`. Both stdout and stderr go there.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
+| Service installed but WebChat / HTTP bridge never come up; logs empty or stuck before "listening" | Bypass Permissions startup dialog waiting for a "Do you accept?" that the daemon (launchd / systemd) cannot answer — no TTY | Add `"skipDangerousModePermissionPrompt": true` to `~/.claude/settings.json`, then restart the service. Only affects service mode; interactive `claude` is unaffected |
 | "service installed" but WebChat still unreachable | Service file is correct but `claude` not in PATH for launchd | Verify with `/agent:service status`; use absolute path to `claude` (`which claude` then pass as `claudeBin`) |
 | Service keeps crashing / restart loop | Config error (bad `agent-config.json`) or missing permission the `--dangerously-skip-permissions` flag can't cover | Check `/tmp/clawcode-<slug>.log`; run `/agent:doctor` to see if config is valid |
 | On Linux: service dies when you log out | Lingering not enabled | `sudo loginctl enable-linger $USER` |
 | Uninstall didn't fully stop | systemd cache | `systemctl --user daemon-reload` then re-run uninstall |
 | Multiple agents conflicting | Same slug | Ensure workspace folder names are distinct |
+| Telegram / other channel suddenly drops messages after a config edit | Editing `~/.claude/settings.json` while the service runs reloads MCPs; some plugins do not reconnect cleanly and stay dead | Restart the service after any manual edit (`/agent:service uninstall` + `/agent:service install`, or `systemctl --user restart clawcode-<slug>` / `launchctl kickstart -k gui/$(id -u)/com.clawcode.<slug>`). Reported by [@JD2005L](https://github.com/JD2005L) |
+
+## Watchdog (optional)
+
+If you want an external probe to detect silent failures (plugin subprocess dies but systemd still reports "active", MCP stuck, etc.) and restart the service, there's an opt-in recipe at [`recipes/watchdog/`](../recipes/watchdog/). It installs a systemd user timer (Linux) or launchd StartInterval LaunchAgent (macOS) that runs every 5 minutes, does 4 tiered checks, and triggers a restart + alert on failure. Does not touch the running service during install — Claude stays up.
+
+Full docs: [`docs/watchdog.md`](watchdog.md).
 
 ## Implementation
 

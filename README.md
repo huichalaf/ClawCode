@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/clawcode.png" alt="ClawCode mascot" width="240">
+</p>
+
 <h1 align="center">🛸 ClawCode</h1>
 
 <p align="center">
@@ -283,6 +287,8 @@ Run the agent as a background service (launchd on macOS, systemd on Linux):
 ```
 
 Full details: [`docs/service.md`](docs/service.md)
+
+Optional companion: [`docs/watchdog.md`](docs/watchdog.md) — opt-in external health probe + auto-restart for always-on services.
 
 ### [Configuration](#configuration)
 

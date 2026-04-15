@@ -180,6 +180,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=${opts.workspace}
+ExecStartPre=-/usr/bin/pkill -f "claude.*--dangerously-skip-permissions"
 ExecStart=${execStart}
 Restart=always
 RestartSec=10
