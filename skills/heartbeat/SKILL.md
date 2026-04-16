@@ -1,68 +1,135 @@
 ---
 name: heartbeat
-description: Run agent heartbeat — periodic checks, memory consolidation, proactive work. Triggers on /agent:heartbeat, "heartbeat", "heartbeat check", "periodic check", "consolidar memoria".
+description: Central orchestrator — every 10 min (8am-8pm) scans comms, creates Paperclip tasks for actionable items, triggers agent execution, and updates knowledge base on completion. Triggers on /agent:heartbeat.
 user-invocable: true
 ---
 
-# Heartbeat
+# Heartbeat — Central Orchestrator
 
-Run the agent's periodic checks. Triggered every 30 minutes by a local cron, or manually.
+The heartbeat is the engine that drives everything. Every 10 minutes (8am–8pm), it:
+1. Scans communications (WhatsApp + Gmail)
+2. Creates Paperclip tasks for actionable items
+3. Triggers agents to execute tasks
+4. Updates the knowledge base when work completes
 
-## How it works
+## Execution Flow
 
-1. **Check active hours** — read `agent-config.json` for `heartbeat.activeHours`. If outside the window, skip silently.
+### Phase 1 — Comms Scan (read-only)
 
-2. **Load state** — read `memory/heartbeat-state.json` (if exists) to know when each check last ran. Avoid repeating checks done less than 30 min ago.
+Scan WhatsApp and Gmail for new items since last heartbeat:
 
-3. **Read HEARTBEAT.md** — this is the checklist. Follow it strictly. Do not infer or repeat old tasks from prior conversations. If nothing in the checklist needs attention, skip to step 6.
+```bash
+# WhatsApp
+wacli messages list --store ~/.wacli-aidtogrow --after "<10min_ago>" --limit 20
+wacli messages list --store ~/.wacli --after "<10min_ago>" --limit 20
 
-4. **Execute checks** — rotate through the items in HEARTBEAT.md, doing 2-4 per heartbeat (not all every time). For each:
-   - Memory consolidation: review last 3 daily logs → distill insights → update MEMORY.md
-   - Dream review: `dream(action='status')` → note high-recall items not yet promoted
-   - Custom checks: whatever the user added to HEARTBEAT.md (emails, health, projects, etc.)
+# Gmail
+gog gmail search "newer_than:15m is:unread" --max 10 --account pablo.huichalaf@aidtogrow.com
+```
 
-5. **Proactive work** (do without asking):
-   - Organize memory files
-   - Remove outdated entries from MEMORY.md
-   - Check `IMPORT_BACKLOG.md` if it exists — remind user about pending items
-   - Verify installed skills are accessible
+Classify each item: **ACTION_NEEDED**, **URGENT**, or **FYI**.
 
-6. **Update state** — write `memory/heartbeat-state.json` with timestamps for each check performed.
+### Phase 2 — Paperclip Task Creation
 
-7. **Notify or stay quiet:**
-   - If something needs the user's attention → notify (via reply tool if on a messaging channel, or print if CLI)
-   - If nothing noteworthy → do nothing. No "heartbeat completed" messages.
+For each ACTION_NEEDED or URGENT item, check if a Paperclip task already exists:
 
-## Self-managing the checklist
+```bash
+# Search existing tasks via Paperclip MCP or CLI
+paperclip_issue(action="list", status="open")
+```
 
-The agent should **edit HEARTBEAT.md during normal conversations** when something needs periodic attention:
+If no existing task matches → create one:
+```
+paperclip_issue(action="create", title="[SOURCE] Subject", description="...")
+```
 
-- User says "revísame los emails cada rato" → agent adds `- **Email inbox** — check for urgent unread` to HEARTBEAT.md
-- User installs a new skill with periodic needs → agent adds a check for it
-- A reminder is due daily → agent adds it to HEARTBEAT.md instead of creating a separate cron
-- When a check is no longer needed → agent removes it from HEARTBEAT.md
+Link the task to the relevant project/client if identifiable:
+- Bryan/Kamina emails → project: Kamina
+- Daniel Olivares → project: Sales Pipeline
+- SII/legal → project: Compliance
+- ElevenLabs invoice → project: Finance
 
-**Rule:** batch similar checks into HEARTBEAT.md instead of creating multiple cron jobs. Heartbeats are cheaper (one turn, multiple checks) than separate crons (one turn each).
+### Phase 3 — Agent Execution
 
-## Active hours
+For tasks that can be executed autonomously (no human approval needed):
+1. Check if a suitable agent exists in Paperclip: `paperclip_agents(action="list")`
+2. Assign the task: `paperclip_issue(action="checkout", id=<task_id>, agentId=<agent_id>)`
+3. Wake up the agent: `paperclip_agents(action="wakeup", agentId=<agent_id>, reason="Heartbeat: <task summary>")`
 
+Tasks that CAN be auto-executed:
+- Research and summarize an email thread
+- Review and log document contents
+- Analyze data and produce reports
+- Draft responses (but NEVER send without approval)
+
+Tasks that CANNOT be auto-executed (flag for Pablo):
+- Sending emails or messages
+- Making payments
+- Signing documents
+- Decisions involving money or legal commitments
+
+### Phase 4 — Knowledge Base Update
+
+When a task completes (agent reports back or you finish work):
+1. Extract key learnings from the task
+2. Update relevant knowledge files:
+   - `memory/whatsapp/<contact>.md` — if conversation produced new info
+   - `memory/MEMORY.md` — for important decisions or facts
+   - `memory/<today>.md` — daily log entry
+3. If the task involved a client/project, update project-specific knowledge
+
+### Phase 5 — State & Log
+
+Update `memory/heartbeat-state.json`:
 ```json
 {
-  "heartbeat": {
-    "activeHours": {
-      "start": "08:00",
-      "end": "23:00",
-      "timezone": "America/Santiago"
-    }
-  }
+  "lastRun": "<ISO timestamp>",
+  "itemsScanned": { "whatsapp": 5, "gmail": 3 },
+  "tasksCreated": 1,
+  "agentsTriggered": 0,
+  "knowledgeUpdated": true
 }
 ```
 
-Outside this window, heartbeats skip silently. Configure via `/agent:settings`.
+Log summary to `memory/<today>.md`:
+```markdown
+## Heartbeat — HH:MM
+- Scanned: 5 WhatsApp, 3 Gmail
+- New: 1 ACTION_NEEDED (Bryan/Kamina v5 review)
+- Tasks: created IND-42 in Paperclip
+- Agents: none triggered (needs human approval)
+```
 
-## Scheduling
+If nothing new → don't log. Silent heartbeats are fine.
 
-Created automatically on first session (SessionStart hook):
-- Default: `*/30 * * * *` (every 30 minutes)
-- Only fires while Claude Code is open and REPL is idle
-- For 24/7 heartbeats, use `/agent:service install`
+## Active Hours
+
+Only runs 8am–8pm Chile time. Outside this window, skip silently.
+Morning analysis (6:03 AM) handles the overnight gap.
+
+## Schedule
+
+```
+*/10 8-20 * * *
+```
+
+## Architecture
+
+```
+  Heartbeat (every 10 min)
+      │
+      ├── 1. Scan Comms (WhatsApp + Gmail)
+      │       └── Classify: URGENT / ACTION / FYI
+      │
+      ├── 2. Create Paperclip Tasks
+      │       └── Link to project/client
+      │
+      ├── 3. Trigger Agents
+      │       ├── Auto-execute if safe
+      │       └── Flag for Pablo if needs approval
+      │
+      ├── 4. Update Knowledge Base
+      │       └── On task completion
+      │
+      └── 5. Log & State
+```
