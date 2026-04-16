@@ -2,7 +2,7 @@ name: Clone Count
 
 on:
   schedule:
-    - cron: "0 0 * * *"
+    - cron: "0 6 * * *"   # 06:00 UTC; gives Traffic API ~6h lag to finalize yesterday's data
   workflow_dispatch:
 
 permissions:
