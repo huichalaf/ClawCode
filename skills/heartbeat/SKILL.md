@@ -1,22 +1,14 @@
 ---
 name: heartbeat
-description: Central orchestrator — every 10 min (8am-8pm) scans comms, creates Paperclip tasks for actionable items, triggers agent execution, and updates knowledge base on completion. Triggers on /agent:heartbeat.
+description: Central orchestrator — every 10 min (8am-8pm) scans Gmail+WhatsApp+Calendar, creates Paperclip tasks, triggers agents, updates knowledge, calls Pablo if urgent. Triggers on /agent:heartbeat.
 user-invocable: true
 ---
 
 # Heartbeat — Central Orchestrator
 
-The heartbeat is the engine that drives everything. Every 10 minutes (8am–8pm), it:
-1. Scans communications (WhatsApp + Gmail)
-2. Creates Paperclip tasks for actionable items
-3. Triggers agents to execute tasks
-4. Updates the knowledge base when work completes
+Every 10 minutes (8am–8pm Chile), runs the full loop:
 
-## Execution Flow
-
-### Phase 1 — Comms Scan (read-only)
-
-Scan WhatsApp and Gmail for new items since last heartbeat:
+## Phase 1 — Comms Scan (read-only, never send)
 
 ```bash
 # WhatsApp
@@ -25,111 +17,109 @@ wacli messages list --store ~/.wacli --after "<10min_ago>" --limit 20
 
 # Gmail
 gog gmail search "newer_than:15m is:unread" --max 10 --account pablo.huichalaf@aidtogrow.com
+
+# Calendar (check next 2 hours for upcoming meetings)
+gog calendar events --account pablo.huichalaf@aidtogrow.com --from now --to "+2h"
 ```
 
-Classify each item: **ACTION_NEEDED**, **URGENT**, or **FYI**.
+Classify each item: **URGENT** / **ACTION_NEEDED** / **FYI**
 
-### Phase 2 — Paperclip Task Creation
+## Phase 2 — Paperclip Task Creation
 
-For each ACTION_NEEDED or URGENT item, check if a Paperclip task already exists:
+Config in `agent-config.json`:
+- API: `http://localhost:3200`
+- Company: Aidtogrow (`68ca43dc-...`)
+- Agent: CEO (`3378e022-...`)
 
+For each URGENT or ACTION_NEEDED item, check existing issues:
 ```bash
-# Search existing tasks via Paperclip MCP or CLI
-paperclip_issue(action="list", status="open")
+curl -s "http://localhost:3200/api/companies/$COMPANY/issues?status=backlog,in_progress" \
+  -H "Authorization: Bearer $KEY" -H "Company-Id: $COMPANY"
 ```
 
-If no existing task matches → create one:
+If no matching issue exists → create one:
+```bash
+curl -s -X POST "http://localhost:3200/api/companies/$COMPANY/issues" \
+  -H "Authorization: Bearer $KEY" -H "Company-Id: $COMPANY" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"[SOURCE] Subject","description":"..."}'
 ```
-paperclip_issue(action="create", title="[SOURCE] Subject", description="...")
+
+## Phase 3 — Agent Execution
+
+For tasks that can be auto-executed (research, analysis, drafts):
+```bash
+# Wake up CEO to delegate
+curl -s -X POST "http://localhost:3200/api/agents/$CEO_ID/wakeup" \
+  -H "Authorization: Bearer $KEY" -H "Company-Id: $COMPANY" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"Heartbeat: new task AID-XXX"}'
 ```
 
-Link the task to the relevant project/client if identifiable:
-- Bryan/Kamina emails → project: Kamina
-- Daniel Olivares → project: Sales Pipeline
-- SII/legal → project: Compliance
-- ElevenLabs invoice → project: Finance
+**Auto-safe** (execute without asking):
+- Research, summarize, analyze
+- Draft responses (never send)
+- Generate reports
+- Update knowledge files
 
-### Phase 3 — Agent Execution
+**Needs Pablo** (call him via /call-me):
+- Send emails or messages
+- Make payments
+- Sign or approve documents
+- Decisions involving money or legal
 
-For tasks that can be executed autonomously (no human approval needed):
-1. Check if a suitable agent exists in Paperclip: `paperclip_agents(action="list")`
-2. Assign the task: `paperclip_issue(action="checkout", id=<task_id>, agentId=<agent_id>)`
-3. Wake up the agent: `paperclip_agents(action="wakeup", agentId=<agent_id>, reason="Heartbeat: <task summary>")`
+## Phase 4 — Feedback Loop (on completed tasks)
 
-Tasks that CAN be auto-executed:
-- Research and summarize an email thread
-- Review and log document contents
-- Analyze data and produce reports
-- Draft responses (but NEVER send without approval)
+Check for recently completed issues:
+```bash
+curl -s "http://localhost:3200/api/companies/$COMPANY/issues?status=done&updatedAfter=<last_heartbeat>" \
+  -H "Authorization: Bearer $KEY" -H "Company-Id: $COMPANY"
+```
 
-Tasks that CANNOT be auto-executed (flag for Pablo):
-- Sending emails or messages
-- Making payments
-- Signing documents
-- Decisions involving money or legal commitments
+For each completed task:
+1. Read the issue comments (agent's results)
+2. Update knowledge base:
+   - `memory/pipeline.md` — if deal-related
+   - `memory/finances.md` — if financial
+   - `memory/contacts.md` — if learned about a contact
+   - `memory/substack-ideas.md` — if content-worthy
+3. Log to `memory/<today>.md`
 
-### Phase 4 — Knowledge Base Update
+## Phase 5 — Alerts (call Pablo if critical)
 
-When a task completes (agent reports back or you finish work):
-1. Extract key learnings from the task
-2. Update relevant knowledge files:
-   - `memory/whatsapp/<contact>.md` — if conversation produced new info
-   - `memory/MEMORY.md` — for important decisions or facts
-   - `memory/<today>.md` — daily log entry
-3. If the task involved a client/project, update project-specific knowledge
+If URGENT items found AND they need human action:
+```
+Use /call-me skill to call Pablo at +56954433358
+Explain what was found and what action is needed
+```
 
-### Phase 5 — State & Log
+Trigger call for:
+- Invoices overdue >7 days
+- Client escalations
+- System outages
+- Tax/legal deadlines
 
-Update `memory/heartbeat-state.json`:
+## Phase 6 — Log & State
+
+Update `memory/heartbeat-state.json` and append to `memory/<today>.md`.
+If nothing new → stay silent, don't log.
+
+## Paperclip Credentials
+
+Read from `agent-config.json`:
 ```json
 {
-  "lastRun": "<ISO timestamp>",
-  "itemsScanned": { "whatsapp": 5, "gmail": 3 },
-  "tasksCreated": 1,
-  "agentsTriggered": 0,
-  "knowledgeUpdated": true
+  "paperclip": {
+    "apiUrl": "http://localhost:3200",
+    "apiKey": "pcp_...",
+    "companyId": "68ca43dc-...",
+    "agentId": "3378e022-..."
+  }
 }
 ```
-
-Log summary to `memory/<today>.md`:
-```markdown
-## Heartbeat — HH:MM
-- Scanned: 5 WhatsApp, 3 Gmail
-- New: 1 ACTION_NEEDED (Bryan/Kamina v5 review)
-- Tasks: created IND-42 in Paperclip
-- Agents: none triggered (needs human approval)
-```
-
-If nothing new → don't log. Silent heartbeats are fine.
-
-## Active Hours
-
-Only runs 8am–8pm Chile time. Outside this window, skip silently.
-Morning analysis (6:03 AM) handles the overnight gap.
 
 ## Schedule
 
 ```
 */10 8-20 * * *
-```
-
-## Architecture
-
-```
-  Heartbeat (every 10 min)
-      │
-      ├── 1. Scan Comms (WhatsApp + Gmail)
-      │       └── Classify: URGENT / ACTION / FYI
-      │
-      ├── 2. Create Paperclip Tasks
-      │       └── Link to project/client
-      │
-      ├── 3. Trigger Agents
-      │       ├── Auto-execute if safe
-      │       └── Flag for Pablo if needs approval
-      │
-      ├── 4. Update Knowledge Base
-      │       └── On task completion
-      │
-      └── 5. Log & State
 ```
