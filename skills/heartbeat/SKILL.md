@@ -1,129 +1,83 @@
 ---
 name: heartbeat
-description: Central orchestrator — scans comms, creates Paperclip tasks, triggers agents, sends issue digest by email, updates memory/issues.md, calls Pablo if urgent. Accepts commands via Telegram. Triggers on /agent:heartbeat.
+description: Central executor — scans comms, RESOLVES issues autonomously, sends low-risk responses, sends drafts to Pablo via WhatsApp for approval on medium/high risk. Triggers on /agent:heartbeat.
 user-invocable: true
 ---
 
-# Heartbeat — Central Orchestrator
+# Heartbeat — Central Executor
 
-Every 15 minutes (8am–8pm Chile). Queues work for Pablo's blocks.
+Every 15 minutes (8am–8pm Chile). The system RESOLVES, not queues.
 
-## Pablo's Schedule (RESPECT THIS)
+## Pablo's Blocks
+- 6-7 AM: Morning decisions (YES/NO on drafts)
+- 9-12 PM: Execution (strategic work)
+- Rest: System resolves autonomously
 
-| Block | Time | What Pablo does | What heartbeat does |
-|---|---|---|---|
-| Morning | 6:00–7:00 | Reviews briefing, decides | morning-analysis already ran at 6:03 |
-| Gap | 7:00–9:00 | NOT WORKING | Queue everything, don't interrupt |
-| Execution | 9:00–12:00 | Executes tasks | execution-prep ran at 8:57. Only interrupt if URGENT |
-| Afternoon | 12:00–20:00 | NOT WORKING | Queue everything, email digest at 12:00. Only call if critical |
-
-**RULE**: Between 12:00 and 6:00 AM → NEVER call, NEVER email urgent. Queue for tomorrow.
-**EXCEPTION**: System down, client escalation with money at risk, legal deadline today → call.
-
-## Phase 1 — Comms Scan (read-only)
-
+## Phase 1 — Scan
 ```bash
-# WhatsApp
-wacli messages list --store ~/.wacli-aidtogrow --after "<10min_ago>" --limit 20
-wacli messages list --store ~/.wacli --after "<10min_ago>" --limit 20
-
-# Gmail
 gog gmail search "newer_than:15m is:unread" --max 10 --account pablo.huichalaf@aidtogrow.com
-
-# Calendar (next 2 hours)
+wacli messages list --store ~/.wacli-aidtogrow --after "<15min_ago>" --limit 20
 gog calendar events --account pablo.huichalaf@aidtogrow.com --from now --to "+2h"
 ```
 
-Classify: **URGENT** / **ACTION_NEEDED** / **FYI**
+## Phase 2 — Resolve (not queue)
 
-## Phase 2 — Paperclip Issues + Memory
+For each item:
 
-For URGENT/ACTION items, create Paperclip issue:
-```bash
-curl -s -X POST "http://localhost:3200/api/companies/$COMPANY/issues" \
-  -H "Authorization: Bearer $KEY" -H "Company-Id: $COMPANY" \
-  -H "Content-Type: application/json" \
-  -d '{"title":"[SOURCE] Subject","description":"..."}'
-```
+### If it's something the system CAN resolve alone:
+1. Research the topic (search memory, Gmail history, WhatsApp history, web)
+2. Prepare the solution
+3. If LOW RISK → send response directly (email via SendGrid, WhatsApp via plugin)
+4. If MEDIUM/HIGH RISK → send draft to Pablo via WhatsApp plugin:
+   ```
+   "📋 Borrador para [destinatario]:
+   [contenido]
+   ¿Envío? OK / NO / edita"
+   ```
+5. Create/update Paperclip issue
+6. Update knowledge base
 
-**ALWAYS update `memory/issues.md`** — this is the persistent tracker:
-- Add new issues to the Open table
-- Move completed issues to Recently Closed
-- This file is how future conversations know what's going on
+### If it requires agent work:
+1. Create Paperclip issue
+2. Wake CEO agent → delegates to MiniMax agent
+3. Agent executes (research, analysis, code, reports)
+4. Result posted as comment on issue
+5. If result needs external communication → draft to Pablo
 
-Config (from `agent-config.json`):
-- API: `http://localhost:3200`
-- Company: `68ca43dc-1912-4139-b6ae-56a254cebc9e`
-- CEO Agent: `3378e022-e2cd-4d27-941b-f3da89f99801`
+## Phase 3 — Feedback loop
+Check completed Paperclip issues → extract results → update:
+- memory/issues.md
+- memory/pipeline.md (if deal-related)
+- memory/finances.md (if financial)
+- memory/assistant-context/ACTIVE_ISSUES.md
 
-## Phase 3 — Email Digest (SendGrid)
+## Phase 4 — Alerts (only if critical)
+- System down affecting clients → call Pablo
+- Active money loss → call Pablo
+- Legal deadline TODAY → call Pablo
+- Everything else → resolve or draft, never call
 
-When new issues are created, send digest email via SendGrid (python):
-- **To**: pablo.huichalaf@aidtogrow.com
-- **From**: pablo.huichalaf@aidtogrow.com (name: "ClawCode Heartbeat")
-- **Subject**: 🔔 [N issues] brief summary
-- **Body**: HTML table with URGENT (red), ACTION (yellow), FYI (gray)
-- **Footer**: "Responde con: cerrar AID-XXX, ignorar AID-XXX, priorizar AID-XXX"
+## LOW RISK responses (send without asking):
+- "Recibido, lo estoy revisando"
+- Internal operational confirmations
+- Follow-up reminders (no commitments)
+- Status updates to team
 
-Use the `/send-email` skill or direct SendGrid API. NEVER use AWS SES.
+## MEDIUM/HIGH RISK (draft → WhatsApp to Pablo):
+- Client responses with specific content
+- Proposals, pricing, conditions
+- Anything involving money
+- Legal or contractual
+- Mass sends (e.g., Kamina mail campaigns)
 
-Only send when there are NEW issues since last email. Don't spam.
-
-## Phase 4 — Agent Execution
-
-Wake CEO to delegate auto-safe tasks:
-```bash
-curl -s -X POST "http://localhost:3200/api/agents/$CEO_ID/wakeup" \
-  -H "Authorization: Bearer $KEY" -H "Company-Id: $COMPANY" \
-  -H "Content-Type: application/json" \
-  -d '{"reason":"Heartbeat: new task AID-XXX"}'
-```
-
-**Auto-safe**: research, analysis, drafts, reports, knowledge updates
-**Needs Pablo**: send emails, payments, approvals, legal, money decisions → call him
-
-## Phase 5 — Feedback Loop
-
-Check completed issues:
-```bash
-curl -s "http://localhost:3200/api/companies/$COMPANY/issues?status=done" \
-  -H "Authorization: Bearer $KEY" -H "Company-Id: $COMPANY"
-```
-
-For each newly completed:
-1. Read comments (agent results)
-2. Update `memory/issues.md` — move to Recently Closed
-3. Update knowledge: `memory/pipeline.md`, `memory/finances.md`, `memory/contacts.md`
-4. Log to `memory/<today>.md`
-
-## Phase 6 — Telegram Commands
-
-The gateway (port 18789) receives Telegram messages. When Pablo sends commands:
-- **"cerrar AID-XXX"** → close issue in Paperclip, update memory/issues.md
-- **"ignorar AID-XXX"** → add to ignored list, stop tracking
-- **"priorizar AID-XXX"** → set priority to urgent
-- **"asignar AID-XXX a [agent]"** → checkout issue to that agent
-- **"status"** → list open issues
-- **"qué hay pendiente"** → summary of urgent items
-
-These commands come through the gateway's default bot (Telegram ID: 8585412296).
-
-## Phase 7 — Call Pablo (/call-me)
-
-For URGENT items needing human action:
-```
-Use /call-me skill
-Phone: +56954433358
-Agent: agent_0901kjmfam09ftmtstry20h33z1c
-```
-
-Trigger call for: invoices >7 days overdue, client escalations, system outages, legal deadlines.
-
-## Phase 8 — Silent if nothing new
-
-If no new items since last heartbeat → don't log, don't email, don't call. Silent.
+## Config
+- Paperclip: localhost:3200, Company Aidtogrow, CEO agent
+- Email: SendGrid (never SES)
+- WhatsApp send: plugin (never wacli)
+- WhatsApp read: wacli (history) + plugin (live)
+- Benjamin does NOT exist. Never assign to him.
 
 ## Schedule
 ```
-*/10 8-20 * * *
+*/15 8-20 * * *
 ```
