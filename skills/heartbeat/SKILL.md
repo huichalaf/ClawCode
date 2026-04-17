@@ -1,14 +1,14 @@
 ---
 name: heartbeat
-description: Central orchestrator — every 10 min (8am-8pm) scans Gmail+WhatsApp+Calendar, creates Paperclip tasks, triggers agents, updates knowledge, calls Pablo if urgent. Triggers on /agent:heartbeat.
+description: Central orchestrator — scans comms, creates Paperclip tasks, triggers agents, sends issue digest by email, updates memory/issues.md, calls Pablo if urgent. Accepts commands via Telegram. Triggers on /agent:heartbeat.
 user-invocable: true
 ---
 
 # Heartbeat — Central Orchestrator
 
-Every 10 minutes (8am–8pm Chile), runs the full loop:
+Every 10 minutes (8am–8pm Chile). Full autopilot loop.
 
-## Phase 1 — Comms Scan (read-only, never send)
+## Phase 1 — Comms Scan (read-only)
 
 ```bash
 # WhatsApp
@@ -18,26 +18,15 @@ wacli messages list --store ~/.wacli --after "<10min_ago>" --limit 20
 # Gmail
 gog gmail search "newer_than:15m is:unread" --max 10 --account pablo.huichalaf@aidtogrow.com
 
-# Calendar (check next 2 hours for upcoming meetings)
+# Calendar (next 2 hours)
 gog calendar events --account pablo.huichalaf@aidtogrow.com --from now --to "+2h"
 ```
 
-Classify each item: **URGENT** / **ACTION_NEEDED** / **FYI**
+Classify: **URGENT** / **ACTION_NEEDED** / **FYI**
 
-## Phase 2 — Paperclip Task Creation
+## Phase 2 — Paperclip Issues + Memory
 
-Config in `agent-config.json`:
-- API: `http://localhost:3200`
-- Company: Aidtogrow (`68ca43dc-...`)
-- Agent: CEO (`3378e022-...`)
-
-For each URGENT or ACTION_NEEDED item, check existing issues:
-```bash
-curl -s "http://localhost:3200/api/companies/$COMPANY/issues?status=backlog,in_progress" \
-  -H "Authorization: Bearer $KEY" -H "Company-Id: $COMPANY"
-```
-
-If no matching issue exists → create one:
+For URGENT/ACTION items, create Paperclip issue:
 ```bash
 curl -s -X POST "http://localhost:3200/api/companies/$COMPANY/issues" \
   -H "Authorization: Bearer $KEY" -H "Company-Id: $COMPANY" \
@@ -45,81 +34,84 @@ curl -s -X POST "http://localhost:3200/api/companies/$COMPANY/issues" \
   -d '{"title":"[SOURCE] Subject","description":"..."}'
 ```
 
-## Phase 3 — Agent Execution
+**ALWAYS update `memory/issues.md`** — this is the persistent tracker:
+- Add new issues to the Open table
+- Move completed issues to Recently Closed
+- This file is how future conversations know what's going on
 
-For tasks that can be auto-executed (research, analysis, drafts):
+Config (from `agent-config.json`):
+- API: `http://localhost:3200`
+- Company: `68ca43dc-1912-4139-b6ae-56a254cebc9e`
+- CEO Agent: `3378e022-e2cd-4d27-941b-f3da89f99801`
+
+## Phase 3 — Email Digest (SendGrid)
+
+When new issues are created, send digest email via SendGrid (python):
+- **To**: pablo.huichalaf@aidtogrow.com
+- **From**: pablo.huichalaf@aidtogrow.com (name: "ClawCode Heartbeat")
+- **Subject**: 🔔 [N issues] brief summary
+- **Body**: HTML table with URGENT (red), ACTION (yellow), FYI (gray)
+- **Footer**: "Responde con: cerrar AID-XXX, ignorar AID-XXX, priorizar AID-XXX"
+
+Use the `/send-email` skill or direct SendGrid API. NEVER use AWS SES.
+
+Only send when there are NEW issues since last email. Don't spam.
+
+## Phase 4 — Agent Execution
+
+Wake CEO to delegate auto-safe tasks:
 ```bash
-# Wake up CEO to delegate
 curl -s -X POST "http://localhost:3200/api/agents/$CEO_ID/wakeup" \
   -H "Authorization: Bearer $KEY" -H "Company-Id: $COMPANY" \
   -H "Content-Type: application/json" \
   -d '{"reason":"Heartbeat: new task AID-XXX"}'
 ```
 
-**Auto-safe** (execute without asking):
-- Research, summarize, analyze
-- Draft responses (never send)
-- Generate reports
-- Update knowledge files
+**Auto-safe**: research, analysis, drafts, reports, knowledge updates
+**Needs Pablo**: send emails, payments, approvals, legal, money decisions → call him
 
-**Needs Pablo** (call him via /call-me):
-- Send emails or messages
-- Make payments
-- Sign or approve documents
-- Decisions involving money or legal
+## Phase 5 — Feedback Loop
 
-## Phase 4 — Feedback Loop (on completed tasks)
-
-Check for recently completed issues:
+Check completed issues:
 ```bash
-curl -s "http://localhost:3200/api/companies/$COMPANY/issues?status=done&updatedAfter=<last_heartbeat>" \
+curl -s "http://localhost:3200/api/companies/$COMPANY/issues?status=done" \
   -H "Authorization: Bearer $KEY" -H "Company-Id: $COMPANY"
 ```
 
-For each completed task:
-1. Read the issue comments (agent's results)
-2. Update knowledge base:
-   - `memory/pipeline.md` — if deal-related
-   - `memory/finances.md` — if financial
-   - `memory/contacts.md` — if learned about a contact
-   - `memory/substack-ideas.md` — if content-worthy
-3. Log to `memory/<today>.md`
+For each newly completed:
+1. Read comments (agent results)
+2. Update `memory/issues.md` — move to Recently Closed
+3. Update knowledge: `memory/pipeline.md`, `memory/finances.md`, `memory/contacts.md`
+4. Log to `memory/<today>.md`
 
-## Phase 5 — Alerts (call Pablo if critical)
+## Phase 6 — Telegram Commands
 
-If URGENT items found AND they need human action:
+The gateway (port 18789) receives Telegram messages. When Pablo sends commands:
+- **"cerrar AID-XXX"** → close issue in Paperclip, update memory/issues.md
+- **"ignorar AID-XXX"** → add to ignored list, stop tracking
+- **"priorizar AID-XXX"** → set priority to urgent
+- **"asignar AID-XXX a [agent]"** → checkout issue to that agent
+- **"status"** → list open issues
+- **"qué hay pendiente"** → summary of urgent items
+
+These commands come through the gateway's default bot (Telegram ID: 8585412296).
+
+## Phase 7 — Call Pablo (/call-me)
+
+For URGENT items needing human action:
 ```
-Use /call-me skill to call Pablo at +56954433358
-Explain what was found and what action is needed
+Use /call-me skill
+Phone: +56954433358
+Agent: agent_0901kjmfam09ftmtstry20h33z1c
 ```
 
-Trigger call for:
-- Invoices overdue >7 days
-- Client escalations
-- System outages
-- Tax/legal deadlines
+Trigger call for: invoices >7 days overdue, client escalations, system outages, legal deadlines.
 
-## Phase 6 — Log & State
+## Phase 8 — Silent if nothing new
 
-Update `memory/heartbeat-state.json` and append to `memory/<today>.md`.
-If nothing new → stay silent, don't log.
-
-## Paperclip Credentials
-
-Read from `agent-config.json`:
-```json
-{
-  "paperclip": {
-    "apiUrl": "http://localhost:3200",
-    "apiKey": "pcp_...",
-    "companyId": "68ca43dc-...",
-    "agentId": "3378e022-..."
-  }
-}
-```
+If no new items since last heartbeat → don't log, don't email, don't call. Silent.
 
 ## Schedule
-
 ```
 */10 8-20 * * *
 ```
