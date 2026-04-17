@@ -1,7 +1,7 @@
 node_modules/
 package-lock.json
 .claude/
-tests/
+dev-tests/
 agent-config.json
 .qmd/
 .crons-created

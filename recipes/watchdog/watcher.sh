@@ -177,7 +177,7 @@ check_tier4() {
   local child_cmdlines=""
 
   # Test hook: when set, skip the real /proc or ps introspection.
-  # Undocumented on purpose — used by tests/tier1n-watchdog-unit.sh.
+  # Undocumented on purpose — used by dev-tests/tier1n-watchdog-unit.sh.
   if [[ -n "${WATCHER_TEST_CHILD_CMDLINES:-}" ]]; then
     child_cmdlines="$WATCHER_TEST_CHILD_CMDLINES"
   elif [[ "$os" == "linux" ]]; then
