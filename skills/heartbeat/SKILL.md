@@ -6,7 +6,19 @@ user-invocable: true
 
 # Heartbeat — Central Orchestrator
 
-Every 10 minutes (8am–8pm Chile). Full autopilot loop.
+Every 15 minutes (8am–8pm Chile). Queues work for Pablo's blocks.
+
+## Pablo's Schedule (RESPECT THIS)
+
+| Block | Time | What Pablo does | What heartbeat does |
+|---|---|---|---|
+| Morning | 6:00–7:00 | Reviews briefing, decides | morning-analysis already ran at 6:03 |
+| Gap | 7:00–9:00 | NOT WORKING | Queue everything, don't interrupt |
+| Execution | 9:00–12:00 | Executes tasks | execution-prep ran at 8:57. Only interrupt if URGENT |
+| Afternoon | 12:00–20:00 | NOT WORKING | Queue everything, email digest at 12:00. Only call if critical |
+
+**RULE**: Between 12:00 and 6:00 AM → NEVER call, NEVER email urgent. Queue for tomorrow.
+**EXCEPTION**: System down, client escalation with money at risk, legal deadline today → call.
 
 ## Phase 1 — Comms Scan (read-only)
 

@@ -1,100 +1,74 @@
 ---
 name: morning-analysis
-description: Daily 6 AM briefing — reviews yesterday's activity, pending items, inbox, calendar, and produces a prioritized daily plan with improvement notes. READ-ONLY. Triggered by cron at 6:03 AM or manually via "/agent:morning-analysis".
+description: 6 AM briefing — everything pre-cooked for Pablo's day. Prioritized tasks, draft responses, calendar, overnight items. Pablo only decides, never researches. Triggered at 6:03 AM or manually.
 user-invocable: true
 ---
 
-# Morning Analysis — Daily Briefing
+# Morning Briefing (6:00–7:00 AM Block)
 
-You run at 6 AM every day. Your job: review everything from yesterday, check what's ahead today, and produce a structured daily plan. READ-ONLY — never send anything.
+Pablo has 1 hour to plan his day. Everything must be ready to decide, not to research.
 
-## Execution Steps
+## What to produce
 
-### 1. Review Yesterday's Logs
-
-Read yesterday's memory file:
+### 1. Overnight Scan
 ```bash
-cat memory/$(date -v-1d +%Y-%m-%d).md 2>/dev/null || echo "No log from yesterday"
+gog gmail search "newer_than:12h is:unread" --max 20 --account pablo.huichalaf@aidtogrow.com
+wacli messages list --store ~/.wacli-aidtogrow --after "$(date -v-12H +%Y-%m-%dT%H:%M:%SZ)" --limit 30
 ```
 
-Extract:
-- All ACTION_NEEDED items — were they resolved?
-- All URGENT items — still pending?
-- Patterns: what types of items keep recurring?
-
-### 2. Gmail Overview
-
+### 2. Calendar Today
 ```bash
-gog gmail search "newer_than:1d is:unread" --max 20 --account pablo.huichalaf@aidtogrow.com
-gog gmail search "newer_than:1d is:starred" --max 10 --account pablo.huichalaf@aidtogrow.com
+gog calendar events --account pablo.huichalaf@aidtogrow.com --from today --to tomorrow
 ```
 
-Categorize:
-- **Must respond today** — emails from clients, partners, team with questions
-- **Review needed** — reports, documents, invoices
-- **Can wait** — newsletters, promotions
-
-### 3. Calendar Check
-
+### 3. Open Issues (from Paperclip)
 ```bash
-gog calendar list --from today --to tomorrow --account pablo.huichalaf@aidtogrow.com
+curl -s "http://localhost:3200/api/companies/68ca43dc-1912-4139-b6ae-56a254cebc9e/issues?status=backlog,in_progress&limit=20" \
+  -H "Authorization: Bearer $(cat /Users/pablohuichalaf/Documents/colabs/agent-config.json | python3 -c 'import json,sys;print(json.load(sys.stdin)["paperclip"]["apiKey"])')" \
+  -H "Company-Id: 68ca43dc-1912-4139-b6ae-56a254cebc9e"
 ```
 
-Note meetings, deadlines, and preparation needed.
+### 4. Yesterday's Unfinished
+Read `memory/<yesterday>.md` — extract carry-forward items.
 
-### 4. WhatsApp Pending
+### 5. Draft Responses
+For each email that needs a reply, write a draft response (1-3 lines). Pablo approves or edits, then sends.
 
-```bash
-wacli messages list --store ~/.wacli-aidtogrow --after "$(date -v-1d +%Y-%m-%d)" --limit 30
-wacli messages list --store ~/.wacli --after "$(date -v-1d +%Y-%m-%d)" --limit 30
-```
-
-Flag unanswered DMs and active group threads.
-
-### 5. Self-Improvement Review
-
-Look at the last 3 days of memory files and identify:
-- Items that stayed ACTION_NEEDED for more than 1 day
-- Scans that found nothing (were they at the right time?)
-- Patterns in what gets flagged vs acted on
-
-### 6. Produce Daily Plan
+## Output Format
 
 Log to `memory/<today>.md`:
 
 ```markdown
 ## Morning Briefing — 06:03
 
-### Today's Priority Stack
-1. [URGENT] ElevenLabs invoice $2,180 — 17 days overdue, pay today
-2. [CLIENT] Bryan/Kamina — review v5 mail previews, approve or feedback
-3. [INTERNAL] CEO business case BPO LATAM — read and respond
-4. [MEETING] 10:00 — Client call (prepare deck)
+### 🔴 Decide Now (before 7 AM)
+1. ElevenLabs $2,180 — pagar hoy? [YES/NO]
+2. Bryan Kamina v5 — aprobar envío masivo? [YES/NO/FEEDBACK: ...]
 
-### Unresolved from Yesterday
-- Daniel Olivares pipeline update — no response on Centinela/Antofagasta
-- Prospect that didn't reply to Daniel — needs escalation decision
+### 📋 Execution Block (9-12 AM)
+1. [30 min] Revisar business case BPO LATAM → responder CEO
+2. [15 min] SII MiSII — corregir DDJJ 1887/1948
+3. [20 min] Standup Benjamin 09:00
+4. [45 min] Pipeline review — contactar Centinela y Antofagasta
 
-### Gmail Quick Hits (respond before 9 AM)
-- Bryan Paredes: mail morosos test
-- Mercury: security check-in
+### 📧 Draft Responses (approve/edit/skip)
+1. To: Bryan → "v5 aprobado, procede con envío masivo"
+2. To: CEO → "Business case revisado, tengo 3 observaciones: ..."
+3. To: SII → (no response needed, action in MiSII)
 
-### Improvement Notes
-- WhatsApp sync still broken — investigate alternative or fix wacli auth
-- 3 scans yesterday found no new WhatsApp data — wasted cycles
+### 📅 Calendar
+- 09:00 Standup Benjamin
+- 10:30 catch-up aidtogrow
+- ...
+
+### 💤 FYI (no action, just context)
+- LinkedIn: 1,209 impressions
+- Chile IA: discussing Cámara Chilena de IA
 ```
 
 ## Rules
-
-- **NEVER send messages or emails** — analysis only
-- Be concise — the plan should fit on one screen
-- Prioritize by: URGENT > CLIENT > INTERNAL > FYI
-- If yesterday had no log, note it and start fresh
-- Don't repeat FYI items from yesterday unless they became actionable
-
-## Schedule
-
-Daily at 6:03 AM (Chile time)
-```
-3 6 * * *
-```
+- NEVER send emails or messages — only draft
+- Everything pre-cooked: Pablo reads, decides YES/NO, moves on
+- Max 5 items in "Decide Now"
+- Max 8 items in "Execution Block" with time estimates
+- If nothing urgent, say so — don't invent work
