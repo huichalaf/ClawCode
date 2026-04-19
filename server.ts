@@ -6,6 +6,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import fs from "fs";
 import path from "path";
+import { execFileSync } from "child_process";
 import { loadConfig, saveConfig } from "./lib/config.ts";
 import {
   getLiveConfig,
@@ -1127,6 +1128,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const dryRun = action === "dry-run";
         const result = dreamEngine.runFullSweep({ dryRun });
 
+        // Run learning engine to update behavioral priors from memory signals
+        let learningOutput = "";
+        if (!dryRun) {
+          try {
+            const learningScript = path.join(PLUGIN_ROOT, "lib", "learning-engine.py");
+            const memoryDir = MEMORY_DIR;
+            learningOutput = execFileSync("python3", [learningScript, "--memory-dir", memoryDir], {
+              timeout: 30000,
+              encoding: "utf-8",
+            });
+          } catch (lerr) {
+            learningOutput = `Learning engine error: ${lerr instanceof Error ? lerr.message : String(lerr)}`;
+          }
+        }
+
         return {
           content: [
             {
@@ -1162,6 +1178,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                   : "",
                 "",
                 !dryRun ? "Dream diary written to DREAMS.md" : "",
+                learningOutput ? `\n### Learning Engine\n${learningOutput.trim()}` : "",
               ]
                 .filter(Boolean)
                 .join("\n"),
