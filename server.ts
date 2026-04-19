@@ -52,6 +52,7 @@ import { MemoryDB } from "./lib/memory-db.ts";
 import { QmdManager } from "./lib/qmd-manager.ts";
 import { PaperclipClient, resolvePaperclipConfig } from "./lib/paperclip-bridge.ts";
 import type { SearchResult } from "./lib/types.ts";
+import { AutogenesisOrchestrator } from "./lib/autogenesis.ts";
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -107,6 +108,10 @@ try {
 
 // Dream engine (always available — uses recall data from .dreams/)
 const dreamEngine = new DreamEngine(WORKSPACE);
+
+// Autogenesis orchestrator — RSPL/SEPL self-evolution protocol
+const autogenesis = new AutogenesisOrchestrator(MEMORY_DIR, PLUGIN_ROOT);
+autogenesis.scanAndRegisterSkills();
 
 // Paperclip bridge (null if not configured — tools gracefully report this)
 const paperclipConfig = resolvePaperclipConfig(WORKSPACE);
@@ -511,6 +516,7 @@ const MCP_TOOL_DIRECTORY: Array<{ name: string; description: string }> = [
   { name: "paperclip_issue", description: "Get, create, or update a Paperclip issue." },
   { name: "paperclip_comment", description: "List or add comments on a Paperclip issue." },
   { name: "paperclip_agents", description: "List agents or wake up a specific agent in Paperclip." },
+  { name: "autogenesis", description: "Self-evolving protocol — version skills, reflect on behavioral patterns, apply or rollback improvements. (AGP/SEPL)" },
 ];
 
 /**
@@ -1025,6 +1031,34 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ["action"],
       },
     },
+    {
+      name: "autogenesis",
+      description:
+        "Self-evolving agent protocol (AGP/SEPL). Manages skill versioning and a nightly Reflect/Select/Improve cycle. Actions: 'status' (registry overview), 'pending' (proposals awaiting review), 'apply' (apply a proposal by id), 'reject' (reject a proposal by id), 'rollback' (revert a skill to a previous version), 'history' (version history for a skill).",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          action: {
+            type: "string",
+            enum: ["status", "pending", "apply", "reject", "rollback", "history"],
+            description: "Action to perform",
+          },
+          id: {
+            type: "string",
+            description: "Proposal ID (for apply/reject)",
+          },
+          skill: {
+            type: "string",
+            description: "Skill name (for rollback/history)",
+          },
+          version: {
+            type: "string",
+            description: "Version string to rollback to (for rollback, e.g. '1.0.0')",
+          },
+        },
+        required: ["action"],
+      },
+    },
   ],
 }));
 
@@ -1143,6 +1177,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }
         }
 
+        // Run autogenesis reflect/select cycle — generates improvement proposals
+        let autogenesisOutput = "";
+        if (!dryRun) {
+          try {
+            autogenesisOutput = autogenesis.runReflectCycle(MEMORY_DIR);
+          } catch (aerr) {
+            autogenesisOutput = `Autogenesis error: ${aerr instanceof Error ? aerr.message : String(aerr)}`;
+          }
+        }
+
         return {
           content: [
             {
@@ -1179,6 +1223,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 "",
                 !dryRun ? "Dream diary written to DREAMS.md" : "",
                 learningOutput ? `\n### Learning Engine\n${learningOutput.trim()}` : "",
+                autogenesisOutput ? `\n### Autogenesis (SEPL Reflect)\n${autogenesisOutput.trim()}` : "",
               ]
                 .filter(Boolean)
                 .join("\n"),
@@ -1836,6 +1881,137 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return { content: [{ type: "text", text: 'Unknown action. Use: "list" or "wakeup"' }], isError: true };
     } catch (e: any) {
       return { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true };
+    }
+  }
+
+  if (name === "autogenesis") {
+    const action = String(params.action || "status");
+
+    try {
+      if (action === "status") {
+        const status = autogenesis.getStatus();
+        const lines = [
+          "## Autogenesis Status (AGP/SEPL)",
+          "",
+          `Registered skills: ${status.registeredResources}`,
+          `Pending proposals: ${status.pendingProposals}`,
+          `Applied proposals: ${status.appliedProposals}`,
+          "",
+          "### Registered Resources",
+          ...status.resources.map(
+            (r) =>
+              `- **${r.name}** (${r.type}) — v${r.currentVersion} | trainable: ${r.trainable} | updated: ${r.updatedAt.slice(0, 10)}`
+          ),
+        ];
+        if (status.recentReports.length > 0) {
+          lines.push("", "### Recent Reports", ...status.recentReports.map((r) => `- ${r}`));
+        }
+        return { content: [{ type: "text", text: lines.join("\n") }] };
+      }
+
+      if (action === "pending") {
+        const proposals = autogenesis.getPendingProposals();
+        if (proposals.length === 0) {
+          return { content: [{ type: "text", text: "No pending proposals. Run `dream(action='run')` to generate new ones." }] };
+        }
+        const lines = [
+          `## Pending Autogenesis Proposals (${proposals.length})`,
+          "",
+          "Use `autogenesis(action='apply', id='...')` to apply or `autogenesis(action='reject', id='...')` to dismiss.",
+          "",
+          ...proposals.map((p) =>
+            [
+              `### ${p.id}`,
+              `Skill: **${p.skill_name}** | Event: \`${p.hypothesis.event_type}\` | Response rate: ${(p.hypothesis.response_rate * 100).toFixed(0)}% | Severity: ${p.hypothesis.severity}`,
+              `Hypothesis: ${p.hypothesis.hypothesis}`,
+              `Proposed addition (${p.proposed_addition.length} chars):`,
+              "```",
+              p.proposed_addition.trim().slice(0, 600) + (p.proposed_addition.length > 600 ? "\n…" : ""),
+              "```",
+              `Created: ${p.created_at}`,
+            ].join("\n")
+          ),
+        ];
+        return { content: [{ type: "text", text: lines.join("\n") }] };
+      }
+
+      if (action === "apply") {
+        const id = String(params.id || "");
+        if (!id) {
+          return { content: [{ type: "text", text: "Error: id is required for apply" }], isError: true };
+        }
+        const result = autogenesis.applyProposal(id);
+        if (!result.success) {
+          return { content: [{ type: "text", text: `Error: ${result.error}` }], isError: true };
+        }
+        return {
+          content: [
+            {
+              type: "text",
+              text: [
+                `✅ Proposal applied successfully.`,
+                `Skill: **${result.skillName}** → new version **${result.version}**`,
+                ``,
+                `To rollback: \`autogenesis(action='rollback', skill='${result.skillName}', version='<previous>')\``,
+              ].join("\n"),
+            },
+          ],
+        };
+      }
+
+      if (action === "reject") {
+        const id = String(params.id || "");
+        if (!id) {
+          return { content: [{ type: "text", text: "Error: id is required for reject" }], isError: true };
+        }
+        const ok = autogenesis.rejectProposal(id);
+        return {
+          content: [{ type: "text", text: ok ? `Proposal '${id}' rejected.` : `Proposal '${id}' not found or already processed.` }],
+        };
+      }
+
+      if (action === "rollback") {
+        const skill = String(params.skill || "");
+        const version = String(params.version || "");
+        if (!skill || !version) {
+          return { content: [{ type: "text", text: "Error: skill and version are required for rollback" }], isError: true };
+        }
+        const ok = autogenesis.rollback(skill, version);
+        return {
+          content: [{ type: "text", text: ok ? `✅ Rolled back '${skill}' to version ${version}.` : `Error: could not rollback '${skill}' to ${version} (version not found in registry)` }],
+          isError: !ok,
+        };
+      }
+
+      if (action === "history") {
+        const skill = String(params.skill || "");
+        if (!skill) {
+          return { content: [{ type: "text", text: "Error: skill is required for history" }], isError: true };
+        }
+        const history = autogenesis.getHistory(skill);
+        if (history.length === 0) {
+          return { content: [{ type: "text", text: `No version history for skill '${skill}'.` }] };
+        }
+        const lines = [
+          `## Version History: ${skill}`,
+          "",
+          ...history.map(
+            (v) =>
+              `- **${v.version}** | ${v.ts.slice(0, 16)} | ${v.reason} | hash: \`${v.contentHash}\`${v.parentVersion ? ` | parent: ${v.parentVersion}` : ""}`
+          ),
+        ];
+        return { content: [{ type: "text", text: lines.join("\n") }] };
+      }
+
+      return {
+        content: [{ type: "text", text: `Unknown autogenesis action: ${action}` }],
+        isError: true,
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Autogenesis error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
     }
   }
 
